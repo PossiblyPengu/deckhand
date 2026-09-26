@@ -713,6 +713,38 @@ class TestWindow(Env):
         finally:
             updater._open = orig
 
+    def test_steamgriddb_key_is_asked_once_and_art_replaces_deckhands(self):
+        from deckhand import steamgriddb
+        from deckhand.widgets import Sheet
+        png = b"\x89PNG\r\n\x1a\nfrom-sgdb"
+        looked_up, keys = [], []
+        orig_art, orig_check, orig_ask_text = steamgriddb.art, steamgriddb.check_key, Sheet.ask_text
+        steamgriddb.art = lambda name, key: (looked_up.append((name, key)), {"p": png, "_hero": png})[1]
+        steamgriddb.check_key = lambda key: keys.append(key)
+        Sheet.ask_text = staticmethod(lambda parent, title, *a, **k: (self.asked.append(title), (0, "  abc123  "))[1])
+        try:
+            self.win.start_install(self.add_installer("Cool Game Setup.exe", 10))
+            self.wait_for(lambda: self.win.stack.currentWidget() is self.win.done)
+            app = core.Library(self.paths).load()[0]
+            grid = self.steam / "userdata/12345/config/grid"
+            self.assertNotEqual((grid / f"{app.steam_appid}p.png").read_bytes(), png)  # drawn by Deckhand
+            self.win.steamgriddb_menu()  # no key yet: asks for one, checks it, then gets art for everything
+            self.assertEqual(self.asked[-1], "SteamGridDB art")
+            self.wait_for(lambda: keys == ["abc123"])
+            self.wait_for(lambda: (grid / f"{app.steam_appid}p.png").read_bytes() == png)
+            self.assertEqual(self.paths.state()["steamgriddb_key"], "abc123")
+            self.assertEqual(looked_up, [("Cool Game", "abc123")])
+            self.assertEqual((grid / f"{app.steam_appid}_hero.png").read_bytes(), png)
+            self.assertNotEqual((grid / f"{app.steam_appid}_logo.png").read_bytes(), png)  # none on SGDB: drawn
+            self.wait_for(lambda: not self.win.busy_with_quietly("art"))
+            app = core.Library(self.paths).load()[0]
+            self.assertEqual(len(app.artwork), 4)
+            core.uninstall(app, self.paths, roots=[self.steam])
+            self.assertEqual(list(grid.iterdir()), [])  # it's ours: removed with the program
+        finally:
+            steamgriddb.art, steamgriddb.check_key = orig_art, orig_check
+            Sheet.ask_text = staticmethod(orig_ask_text)
+
     def test_remove_duplicate_shortcuts_only_with_steam_closed(self):
         vdf = self.steam / "userdata/12345/config/shortcuts.vdf"
         e = {"appid": 1, "AppName": "Emu", "Exe": '"/emu"', "StartDir": '"/"', "LaunchOptions": ""}

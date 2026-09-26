@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPlainTextEdit,
     QPushButton,
     QSizePolicy,
@@ -246,7 +247,8 @@ class Sheet(QWidget):
     current: "Sheet | None" = None  # the sheet on top, if any
 
     def __init__(self, parent: QWidget, title: str, text: str = "", buttons: tuple[str, ...] = ("OK",),
-                 primary: int = 0, danger: tuple[int, ...] = (), detail: str = ""):
+                 primary: int = 0, danger: tuple[int, ...] = (), detail: str = "", field: str | None = None,
+                 value: str = ""):
         top = parent.window()
         super().__init__(top)
         self.top = top
@@ -274,6 +276,13 @@ class Sheet(QWidget):
         lay.addWidget(label(title, "h2"))
         if text:
             lay.addWidget(label(text, "dim"))
+        self.field: QLineEdit | None = None
+        self.value = value
+        if field is not None:  # a line of text to type: `field` is its placeholder
+            self.field = QLineEdit(value)
+            self.field.setPlaceholderText(field)
+            self.field.returnPressed.connect(lambda: self._pick(primary))
+            lay.addWidget(self.field)
         if detail:
             box = QPlainTextEdit(detail)
             box.setReadOnly(True)
@@ -313,7 +322,9 @@ class Sheet(QWidget):
         self.setGeometry(self.top.rect())
         self.show()
         self.raise_()
-        if self.buttons:
+        if self.field is not None:
+            self.field.setFocus()
+        elif self.buttons:
             self.buttons[self.primary].setFocus()
         self._loop = QEventLoop()
         self._loop.exec()
@@ -332,6 +343,8 @@ class Sheet(QWidget):
 
     def _pick(self, i: int) -> None:
         self.choice = i
+        if self.field is not None:
+            self.value = self.field.text()
         if self._loop is not None:
             self._loop.quit()
 
@@ -358,6 +371,14 @@ class Sheet(QWidget):
     @staticmethod
     def ask(parent: QWidget, title: str, text: str = "", buttons: tuple[str, ...] = ("OK",), **kw) -> int:
         return Sheet(parent, title, text, buttons, **kw).exec()
+
+    @staticmethod
+    def ask_text(parent: QWidget, title: str, text: str = "", buttons: tuple[str, ...] = ("OK",),
+                 placeholder: str = "", value: str = "", **kw) -> tuple[int, str]:
+        """Like ask, with a line of text to type: (chosen button, the text)."""
+        sheet = Sheet(parent, title, text, buttons, field=placeholder, value=value, **kw)
+        choice = sheet.exec()
+        return choice, sheet.value
 
 
 class ElideLabel(QLabel):

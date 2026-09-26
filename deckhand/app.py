@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, addons, artwork, core, fixes, proton, stores, streaming, theme, updater
+from . import __version__, addons, artwork, core, fixes, proton, steamgriddb, stores, streaming, theme, updater
 from .nav import Nav
 from .widgets import ElideLabel, HintBar, Sheet, Steps, Tile, Toast, breakable, button, draw_glyph, label
 
@@ -2119,6 +2119,87 @@ class MainWindow(QMainWindow):
         artwork.remove_files(app.artwork)
         app.artwork = artwork.write_steam_artwork(app.steam_appid, app.name, icon_img, core.steam_grid_dirs())
         self.library.upsert(app)
+        if self.sgdb_key():
+            self.fetch_art([app], quiet=True)
+
+    # ── SteamGridDB ──────────────────────────────────────────────────
+
+    def sgdb_key(self) -> str:
+        return str(self.paths.state().get("steamgriddb_key") or "")
+
+    def fetch_art(self, apps: list[core.App], quiet: bool = False) -> None:
+        """Replace Deckhand's drawn art with SteamGridDB's, where it has some, in the background."""
+        key = self.sgdb_key()
+        apps = [a for a in apps if a.steam_appid]
+        if not key or not apps:
+            return
+
+        def run(status) -> dict[str, dict[str, bytes]]:
+            found = {}
+            for i, a in enumerate(apps, 1):
+                if not quiet:
+                    status(f"Looking up art on SteamGridDB…  {i} of {len(apps)}: {a.name}")
+                found[a.id] = steamgriddb.art(a.name, key)
+            return found
+
+        def finished(found: dict[str, dict[str, bytes]]) -> None:
+            got = 0
+            for app in self.library.load():  # (as they are now: one may have been uninstalled meanwhile)
+                images = found.get(app.id)
+                if not images:
+                    continue
+                artwork.remove_files(app.artwork)
+                app.artwork = artwork.write_steam_artwork(app.steam_appid, app.name, artwork.load_icon(app.icon),
+                                                          core.steam_grid_dirs(), images)
+                self.library.upsert(app)
+                got += 1
+            if not quiet:
+                self.flash(f"Art from SteamGridDB for {got} of {len(apps)}" if got else
+                           "SteamGridDB has no art for these", ms=5000)
+
+        def failed(message: str) -> None:
+            if not quiet:
+                Sheet.ask(self, "SteamGridDB", message, ("Close",))
+
+        self.run_worker(run, finished, failed, status=None if quiet else (lambda t: self.flash(t, ms=60_000)),
+                        kind="art")
+
+    def steamgriddb_menu(self) -> None:
+        key = self.sgdb_key()
+        if key:
+            choice = Sheet.ask(self, "SteamGridDB art", "Deckhand uses library art from SteamGridDB for what it adds to "
+                               f"Steam (with the API key ending in …{key[-4:]}). Art you added yourself is never "
+                               "replaced.", ("Get art for everything now", "Change the API key",
+                                             "Stop using SteamGridDB", "Close"), primary=3)
+            if choice == 0:
+                if not self.busy_with("art"):
+                    self.fetch_art(self.library.load())
+            elif choice == 1:
+                self.ask_sgdb_key()
+            elif choice == 2:
+                self.paths.remember(steamgriddb_key="")
+                self.flash("Deckhand draws its own art again (the art already in Steam stays)")
+            return
+        self.ask_sgdb_key()
+
+    def ask_sgdb_key(self) -> None:
+        choice, value = Sheet.ask_text(
+            self, "SteamGridDB art", "SteamGridDB (steamgriddb.com) has library art made by the community for "
+            "most games and apps. Deckhand can use it instead of the art it draws itself.\n\nIt needs a free API "
+            "key: sign in at steamgriddb.com (with your Steam account), open Preferences → API and generate one, "
+            "then type or paste it here." + ("  (STEAM + X opens the keyboard.)" if core.in_game_mode() else ""),
+            ("Save", "Cancel"), placeholder="API key")
+        key = value.strip()
+        if choice != 0 or not key:
+            return
+
+        def saved(_result) -> None:
+            self.paths.remember(steamgriddb_key=key)
+            self.flash("SteamGridDB key saved — getting art…")
+            self.fetch_art(self.library.load())
+
+        self.run_worker(lambda _s: steamgriddb.check_key(key), saved,
+                        lambda m: Sheet.ask(self, "SteamGridDB", m, ("Close",)), kind="art")
 
     def add_to_steam(self, app: core.App) -> None:
         """Put an installed program (back) into Steam — e.g. if a Steam restart dropped it."""
@@ -2373,6 +2454,7 @@ class MainWindow(QMainWindow):
             ("Check for updates", lambda: self.check_for_updates(manual=True)),
             ("Add Deckhand to Steam", self.add_self_to_steam),
             ("Remove duplicate Steam shortcuts", self.remove_duplicates),
+            ("SteamGridDB art", self.steamgriddb_menu),
             ("Look for installers again", look_again),
             ("About", about),
             ("Quit Deckhand", self.close),
