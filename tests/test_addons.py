@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from deckhand import addons, core  # noqa: E402
 from tests.test_core import Env  # noqa: E402
+from tests.test_streaming import FlatpakEnv  # noqa: E402
 
 DECKY_SCRIPT = b"#!/bin/bash\n# Decky Installer (fake)\nmkdir -p \"$HOME/homebrew/services\"\n" \
                b"touch \"$HOME/homebrew/services/PluginLoader\"\necho v3.1.10 > \"$HOME/homebrew/services/.loader.version\"\n" \
@@ -74,3 +75,36 @@ class TestAddons(Env):
     def test_no_appimage_in_the_release_is_explained(self):
         with self.assertRaises(core.InstallError):
             addons.emudeck_release(lambda url: json.dumps({"tag_name": "v1", "assets": []}).encode())
+
+
+class TestFlathubAddons(FlatpakEnv):
+    def test_a_game_mode_app_is_installed_and_added_to_steam(self):
+        from deckhand import streaming
+        discord = addons.addon("discord")
+        self.assertEqual(addons.status(discord, installed=set()), "Not installed")
+        app = streaming.set_up(discord.service, self.paths, roots=[self.steam], kind="addon")
+        self.assertIn("install --user -y --noninteractive flathub com.discordapp.Discord", self.calls())
+        self.assertEqual((app.kind, app.id), ("addon", "addon-discord"))
+        self.assertIn("exec flatpak run com.discordapp.Discord", Path(app.launcher).read_text())
+        self.assertEqual(Path(app.icon).name, "addon-discord.png")
+        self.assertTrue(core.in_steam(app, [self.steam]))
+        self.assertEqual(addons.status(discord, installed=streaming.installed_apps()), "Installed")
+        # Uninstalling: the shortcut goes, then the app.
+        self.assertFalse(core.uninstall(app, self.paths, roots=[self.steam]))
+        streaming.uninstall_app(discord.app)
+        self.assertIn("uninstall --user -y --noninteractive com.discordapp.Discord", self.calls())
+        self.assertNotIn(discord.app, streaming.installed_apps())
+        self.assertEqual(core.steam_shortcuts([self.steam]), [])
+
+    def test_uninstalling_an_app_installed_for_all_users_is_explained(self):
+        from deckhand import streaming
+        with self.assertRaises(core.InstallError) as ctx:
+            streaming.uninstall_app("com.github.tchx84.Flatseal")
+        self.assertIn("Discover", str(ctx.exception))
+
+    def test_every_flathub_addon_is_a_flathub_app(self):
+        for a in addons.ADDONS:
+            if a.app:
+                self.assertRegex(a.app, r"^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){2,}$", a.id)
+            self.assertFalse(a.steam and not a.app, a.id)  # only Flathub apps are added to Steam
+

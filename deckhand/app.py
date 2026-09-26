@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, addons, artwork, core, stores, streaming, theme, updater
+from . import __version__, addons, artwork, core, proton, stores, streaming, theme, updater
 from .nav import Nav
 from .widgets import ElideLabel, HintBar, Sheet, Steps, Tile, Toast, breakable, button, draw_glyph, label
 
@@ -1277,7 +1277,7 @@ class StreamingPage(Page):
 
 
 class AddonsPage(Page):
-    """Decky Loader and EmuDeck, installed from their official sources."""
+    """Popular Deck add-ons and tools, installed from their official sources."""
 
     title = "Add-ons"
 
@@ -1287,8 +1287,9 @@ class AddonsPage(Page):
         lay.setContentsMargins(*PAGE_MARGINS)
         lay.setSpacing(12)
         lay.addWidget(label("Add-ons", "h1"))
-        lay.addWidget(label("Popular Deck add-ons, downloaded from their official sources and set up with their own "
-                            "installers. Both set themselves up in Desktop Mode.", "dim"))
+        lay.addWidget(label("Popular Deck add-ons and tools, from their official sources. Decky Loader and EmuDeck set "
+                            "themselves up in Desktop Mode; the apps from Flathub are installed for your user only.",
+                            "dim"))
         self.list = QListWidget()
         self.list.setIconSize(QSize(44, 44))
         on_choose(self.list, self._activate)
@@ -1299,16 +1300,34 @@ class AddonsPage(Page):
         self.bar.setTextVisible(False)
         self.bar.hide()
         lay.addWidget(self.bar)
+        self.installed: set[str] | None = None  # Flatpak apps; read in the background
+        self.apps: dict[str, core.App] = {}  # add-on id → its Steam shortcut (Flathub apps added to Steam)
+        self.steam: dict[str, str] = {}  # add-on id → core.steam_state of that
 
     def refresh(self) -> None:
+        library = {a.id: a for a in self.win.library.load() if a.kind == "addon"}
+        self.apps = {a.id: library[f"addon-{a.id}"] for a in addons.ADDONS if f"addon-{a.id}" in library}
+        roots, running = core.steam_roots(), core.steam_is_running()
+        entries = core.steam_shortcuts(roots) if self.apps else []
+        self.steam = {i: core.steam_state(app, roots, running, entries) for i, app in self.apps.items()}
         row = max(0, self.list.currentRow())
         self.list.clear()
         for a in addons.ADDONS:
-            it = QListWidgetItem(logo_icon(a.id, a.name, a.color),
-                                 f"{a.name}\n{a.blurb}  ·  {addons.status(a)}  ·  from {a.site}")
+            parts = [a.blurb, addons.status(a, installed=self.installed)]
+            if a.id in self.apps:
+                parts.append(STEAM_STATE[self.steam.get(a.id, "out")])
+            it = QListWidgetItem(logo_icon(a.id, a.name, a.color), f"{a.name}\n" + "  ·  ".join(parts + [f"from {a.site}"]))
             it.setData(Qt.ItemDataRole.UserRole, a.id)
             self.list.addItem(it)
         self.list.setCurrentRow(min(row, self.list.count() - 1))
+        if self.installed is None and not self.win.busy_with_quietly("addon-flatpaks"):
+            self.win.run_worker(lambda _s: streaming.installed_apps(), self._got_installed, lambda _m: None,
+                                kind="addon-flatpaks")
+
+    def _got_installed(self, apps: set[str]) -> None:
+        self.installed = apps
+        if self.win.stack.currentWidget() is self:
+            self.refresh()
 
     def _desktop_only(self, a: addons.Addon, what: str) -> None:
         """In Game Mode: explain, and offer to switch to Desktop Mode."""
@@ -1326,8 +1345,141 @@ class AddonsPage(Page):
             return
         if a.id == "decky":
             self._decky(a)
-        else:
+        elif a.id == "emudeck":
             self._emudeck(a)
+        elif a.id == "ge-proton":
+            self._ge_proton()
+        else:
+            self._flathub(a)
+
+    # ── apps from Flathub ────────────────────────────────────────────
+
+    def _flathub(self, a: addons.Addon) -> None:
+        if self.installed is None:
+            self.win.flash("Still checking what's installed…")
+            return
+        if a.app not in self.installed:
+            then = ("Then it's in your Steam library too, so you can open it in Game Mode." if a.steam else
+                    "Then it's in the Desktop Mode app menu.")
+            if Sheet.ask(self, f"Install {a.name}?", f"Deckhand installs {a.name} from Flathub, for your user only "
+                         f"(no admin password needed). {then}", ("Install", "Cancel")) == 0:
+                self._set_up(a, a.steam)
+            return
+        app = self.apps.get(a.id)
+        in_steam = app is not None and self.steam.get(a.id) in ("in", "sent")
+        actions = [(f"Open {a.name}", lambda: (streaming.open_app(a.app), self.win.flash(f"{a.name} is opening…"))),
+                   ("Remove from Steam", lambda: self.win.uninstall(app)) if in_steam else
+                   ("Add to Steam", lambda: self._set_up(a, True)),
+                   ("Uninstall", lambda: self._uninstall(a)),
+                   ("Close", None)]
+        where = "It's in your Steam library." if in_steam else "It's in the Desktop Mode app menu."
+        choice = Sheet.ask(self, a.name, f"{a.name} is installed (from Flathub). {where}",
+                           tuple(t for t, _f in actions), primary=len(actions) - 1, danger=(2,))
+        if 0 <= choice < len(actions) and actions[choice][1] is not None:
+            actions[choice][1]()
+
+    def _set_up(self, a: addons.Addon, steam: bool) -> None:
+        """Install from Flathub (if needed), and add to Steam if `steam`."""
+        self.status.setText(f"Setting up {a.name}…")
+
+        def run(status):
+            if steam:
+                return streaming.set_up(a.service, self.win.paths, status, kind="addon")
+            report = getattr(status, "progress", lambda pct: None)
+            status(f"Installing {a.name} from Flathub…")
+            report(-1)
+            streaming.install_app(a.app, lambda line: status(f"Installing {a.name} from Flathub…  {line[:60]}"),
+                                  lambda pct: (status(f"Installing {a.name} from Flathub…  {pct}%"), report(pct)))
+            return None
+
+        def finished(app: core.App | None) -> None:
+            self.status.setText("")
+            self.show_progress(None)
+            self.installed = None  # re-read
+            if app is not None:
+                self.win._write_art(app, artwork.load_icon(app.icon))
+                self.win._say_added(app, f"Add-ons → {a.name}")
+            else:
+                self.win.flash(f"{a.name} is installed — it's in the Desktop Mode app menu", ms=5000)
+            self.refresh()
+
+        self.win.run_worker(run, finished, self._failed(a.name), status=self.status.setText, kind="addon",
+                            progress=self.show_progress)
+
+    def _uninstall(self, a: addons.Addon) -> None:
+        app = self.apps.get(a.id)
+        also = " and its Steam shortcut" if app is not None else ""
+        if Sheet.ask(self, f"Uninstall {a.name}?", f"Removes {a.name}{also}. Its settings stay in "
+                     f"~/.var/app/{a.app}, in case you install it again.", ("Uninstall", "Keep"), primary=1,
+                     danger=(0,)) != 0:
+            return
+        self.status.setText(f"Uninstalling {a.name}…")
+        self.show_progress(-1)
+
+        def run(_status) -> bool:
+            left = core.uninstall(app, self.win.paths) if app is not None else False
+            streaming.uninstall_app(a.app)
+            return left
+
+        def finished(left_in_steam: bool) -> None:
+            self.status.setText("")
+            self.show_progress(None)
+            self.installed = None
+            self.win.flash(f"{a.name} uninstalled")
+            self.refresh()
+            if left_in_steam:
+                Sheet.ask(self, f"{a.name} uninstalled", "Its shortcut is still in your Steam library: Deckhand "
+                          "doesn't change Steam's list while Steam is open.\n\n" + REMOVE_IN_STEAM, ("Close",))
+
+        self.win.run_worker(run, finished, self._failed(a.name), status=self.status.setText, kind="addon")
+
+    # ── GE-Proton ────────────────────────────────────────────────────
+
+    def _ge_proton(self) -> None:
+        self.status.setText("Looking for the newest GE-Proton…")
+        self.show_progress(-1)
+
+        def found(release: proton.Release) -> None:
+            self.status.setText("")
+            self.show_progress(None)
+            have = proton.installed()
+            use = ("Deckhand uses it for new installs straight away. For a Steam game, restart Steam, then pick it "
+                   "under ⚙ → Properties → Compatibility.")
+            if release.version in have:
+                Sheet.ask(self, "GE-Proton", f"{release.version}, the newest, is installed. {use}", ("Close",))
+                return
+            size = f" ({core.human_size(release.size)})" if release.size else ""
+            now = f" You have {have[0]}." if have else ""
+            if Sheet.ask(self, f"Install {release.version}?", "GE-Proton is Proton with extra fixes and video codecs, "
+                         f"by GloriousEggroll: many games and installers work better with it.{now}\n\nDeckhand "
+                         f"downloads {release.version}{size} from its GitHub releases, checks it, and puts it with "
+                         f"Steam's compatibility tools. {use}", ("Download and install", "Cancel")) == 0:
+                self._install_ge(release)
+
+        self.win.run_worker(lambda _s: proton.latest(), found, self._failed("GE-Proton"), kind="addon")
+
+    def _install_ge(self, release: proton.Release) -> None:
+        self.status.setText(f"Downloading {release.version}…")
+
+        def run(status):
+            report = getattr(status, "progress", lambda pct: None)
+
+            def progress(done: int, total: int) -> None:
+                if total:
+                    status(f"Downloading {release.version}…  {core.human_size(done)} of {core.human_size(total)}")
+                    report(done * 100 // total)
+            report(-1)
+            path = proton.install(release, progress=progress, status=lambda s: (status(s), report(-1)))
+            return path
+
+        def finished(_path) -> None:
+            self.status.setText("")
+            self.show_progress(None)
+            self.win.flash(f"{release.version} is installed", ms=5000)
+            self.refresh()
+
+        self.win.run_worker(run, finished, self._failed("GE-Proton"), status=self.status.setText, kind="addon",
+                            progress=self.show_progress)
 
     def _decky(self, a: addons.Addon) -> None:
         installed = addons.decky_version() is not None
@@ -2128,7 +2280,7 @@ class MainWindow(QMainWindow):
         their Steam artwork and app menu entry. (The shortcut's own small icon stays until it's added
         to Steam again: Steam's list can't be changed behind a running Steam.)"""
         for app in self.library.load():
-            if app.kind in ("stream", "store") and not app.icon and core.use_logo(app, self.paths,
+            if app.kind in ("stream", "store", "addon") and not app.icon and core.use_logo(app, self.paths,
                                                                                  app.id.split("-", 1)[1]):
                 core.write_desktop_entry(app)
                 self._write_art(app, artwork.load_icon(app.icon))
@@ -2204,16 +2356,17 @@ class MainWindow(QMainWindow):
         self.go(self.installed)
 
     def uninstall(self, app: core.App, size: int | None = None) -> None:
-        if app.kind in ("stream", "store"):
-            stays = "The browser or app it uses stays installed." if app.kind == "stream" else \
-                f"{app.name} itself stays installed, and so do the games you installed with it."
+        if app.kind in ("stream", "store", "addon"):
+            stays = {"stream": "The browser or app it uses stays installed.",
+                     "store": f"{app.name} itself stays installed, and so do the games you installed with it.",
+                     "addon": f"{app.name} itself stays installed."}[app.kind]
             if Sheet.ask(self, f"Remove {app.name}?", f"Removes its Steam shortcut and artwork. {stays}",
                          ("Remove", "Keep"), primary=1, danger=(0,)) != 0:
                 return
 
             def removed(left_in_steam: bool) -> None:
                 self.flash(f"{app.name} removed")
-                if self.stack.currentWidget() in (self.streaming, self.stores):
+                if self.stack.currentWidget() in (self.streaming, self.stores, self.addons):
                     self.stack.currentWidget().refresh()
                 if left_in_steam:
                     Sheet.ask(self, f"{app.name} removed", "Its shortcut is still in your Steam library: "

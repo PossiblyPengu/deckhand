@@ -257,6 +257,24 @@ def install_app(app_id: str, log: Callable[[str], None] = lambda s: None,
                                 + "\n".join(tail))
 
 
+def uninstall_app(app_id: str) -> None:
+    """Uninstall a Flatpak app installed for this user (what install_app installed)."""
+    exe = _flatpak()
+    if not exe:
+        raise core.InstallError("Flatpak isn't available on this system.")
+    proc = subprocess.run([exe, "uninstall", "--user", "-y", "--noninteractive", app_id], env=core.clean_env(),
+                          capture_output=True, text=True, errors="replace", timeout=300)
+    if proc.returncode != 0:
+        raise core.InstallError(f"Couldn't uninstall {app_name(app_id)}. If it was installed for all users, "
+                                f"remove it in Discover (Desktop Mode).\n\n{(proc.stdout + proc.stderr).strip()[-800:]}")
+
+
+def open_app(app_id: str) -> None:
+    """Start a Flatpak app, independent of Deckhand."""
+    subprocess.Popen(["flatpak", "run", app_id], env=core.clean_env(), start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+
+
 def allow_controllers(app_id: str) -> None:
     """Let a browser see game controllers (the Gamepad API needs udev's device info)."""
     exe = _flatpak()

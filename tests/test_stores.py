@@ -105,7 +105,8 @@ class TestStores(FlatpakEnv):
                 program("Epic Mickey", "/x/setup_epic_mickey.exe")]
         found = {s.id: getattr(stores.installed(s, apps), "name", None) for s in stores.STORES}
         self.assertEqual(found, {"heroic": None, "battlenet": "Battle.net", "ea": "EA", "ubisoft": None,
-                                 "epic": "Epic Games Launcher", "amazon": None, "rockstar": None, "itch": None})
+                                 "epic": "Epic Games Launcher", "amazon": None, "rockstar": None, "itch": None,
+                                 "prism": None})
 
     def test_store_shortcuts_made_outside_are_recognised_but_not_heroics_games(self):
         entries = [(Path("/c"), e) for e in (
@@ -114,11 +115,13 @@ class TestStores(FlatpakEnv):
             {"AppName": "Heroic Games Launcher", "Exe": '"flatpak"', "LaunchOptions": "run com.heroicgameslauncher.hgl"},
             {"AppName": "Hades", "Exe": '"flatpak"',  # a game Heroic added: runs Heroic, but isn't Heroic
              "LaunchOptions": "run com.heroicgameslauncher.hgl --no-gui heroic://launch/legendary/Min"},
+            {"AppName": "Minecraft Launcher", "Exe": '"/x/MinecraftLauncher.exe"'},
             {"AppName": "Ubisoft Connect", "Exe": f'"{self.paths.launchers}/ubisoft-connect.sh"'},  # ours
         )]
         found = {s.id: [e["AppName"] for e in stores.spots(s, entries, self.paths.launchers)] for s in stores.STORES}
         self.assertEqual(found, {"heroic": ["Heroic Games Launcher"], "battlenet": ["Battle.net"], "ea": ["EA App"],
-                                 "ubisoft": [], "epic": [], "amazon": [], "rockstar": [], "itch": []})
+                                 "ubisoft": [], "epic": [], "amazon": [], "rockstar": [], "itch": [],
+                                 "prism": ["Minecraft Launcher"]})
 
     def test_a_store_installs_under_its_own_name(self):
         job = self.job(name="Battle.net")

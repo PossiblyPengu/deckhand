@@ -1,7 +1,8 @@
-"""Game stores other than Steam: Epic Games, GOG, Amazon, Battle.net, EA, Ubisoft, Rockstar, itch.io.
+"""Game stores other than Steam: Epic Games, GOG, Amazon, Battle.net, EA, Ubisoft, Rockstar, itch.io,
+and Minecraft (Prism Launcher).
 
 Two ways in, both ending with the store's app in the Steam library:
-- Heroic (Epic Games, GOG and Amazon) and itch are Linux apps. They come from Flathub and are added
+- Heroic (Epic Games, GOG and Amazon), itch and Prism Launcher are Linux apps. They come from Flathub and are added
   to Steam the way home streaming apps are (streaming.set_up): an App with kind "store".
 - The other stores only have a Windows app. Deckhand downloads the store's own installer from its
   official address and installs it like any setup file (core.Installer, under the store's name):
@@ -10,7 +11,6 @@ Two ways in, both ending with the store's app in the Steam library:
 """
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,6 +74,9 @@ STORES = (
           filename="Rockstar-Games-Launcher.exe", spot=r"rockstar games( launcher)?"),
     Store("itch", "itch", "Indie games from itch.io", "Flathub", "#fa5c5c", app="io.itch.itch",
           spot=r"itch(\.io)?"),
+    Store("prism", "Prism Launcher", "Minecraft: Java Edition, with mods and modpacks", "Flathub", "#6fb03a",
+          app="org.prismlauncher.PrismLauncher", spot=r"prism( launcher)?|minecraft( launcher)?",
+          note="Sign in with your Microsoft account in Prism Launcher to play the Minecraft you own."),
 )
 
 
@@ -134,22 +137,10 @@ def download(store_: Store, paths: core.Paths, progress: Callable[[int, int], No
              opener=None) -> Path:
     """Download the store's official installer (fresh each time: they install the latest version)."""
     dest = download_path(store_, paths)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_name(f".{dest.name}.download")
-    try:
-        with (opener or (lambda u: updater._open(u, 60)))(store_.url) as r, open(tmp, "wb") as f:
-            total = int(r.headers.get("Content-Length") or 0)
-            done = 0
-            while chunk := r.read(1 << 16):
-                f.write(chunk)
-                done += len(chunk)
-                progress(done, total)
-        with open(tmp, "rb") as f:
-            if not f.read(8).startswith(MSI_MAGIC if dest.suffix.lower() == ".msi" else EXE_MAGIC):
-                raise core.InstallError(f"The {store_.name} download didn't look like its installer, so it "
-                                        "wasn't used. Try again later.")
-        os.replace(tmp, dest)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
-    return dest
+
+    def check(head: bytes) -> None:
+        if not head.startswith(MSI_MAGIC if dest.suffix.lower() == ".msi" else EXE_MAGIC):
+            raise core.InstallError(f"The {store_.name} download didn't look like its installer, so it wasn't "
+                                    "used. Try again later.")
+
+    return updater.download_to(store_.url, dest, progress, opener, check=check)

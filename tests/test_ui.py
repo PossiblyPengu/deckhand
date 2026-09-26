@@ -522,6 +522,8 @@ class TestWindow(Env):
             self.answers = [0, 1]  # Download EmuDeck; (Game Mode) not now
             page._activate(page.list.item(1))
             self.wait_for(lambda: (self.home / "Applications/EmuDeck.AppImage").exists())
+            self.wait_for(lambda: not self.win.busy_with_quietly("addon"))  # (then it offers to open it)
+            self.assertEqual(self.asked[-1], "EmuDeck")
             self.wait_for(lambda: "Downloaded" in page.list.item(1).text())
         finally:
             addons.emudeck_release, addons.updater._open = orig_release, orig_open
@@ -632,6 +634,64 @@ class TestWindow(Env):
         self.wait_for(lambda: core.Library(self.paths).load() == [])
         self.assertEqual(core.steam_shortcuts([self.steam]), [])
         self.wait_for(lambda: "Not added yet" in page.list.item(0).text())
+
+    def use_fake_flatpak(self):
+        from tests.test_streaming import FAKE_FLATPAK
+        bindir = self.tmp / "flatpak-bin"
+        bindir.mkdir()
+        (bindir / "flatpak").write_text(FAKE_FLATPAK)
+        (bindir / "flatpak").chmod(0o755)
+        os.environ.update(PATH=f"{bindir}:{os.environ['PATH']}", FAKE_FLATPAK_LOG=str(self.tmp / "fp.log"),
+                          FAKE_FLATPAK_DB=str(self.tmp / "fp.db"))
+
+    def test_addons_page_installs_flathub_apps_and_ge_proton(self):
+        import hashlib
+        import json
+        from deckhand import addons, proton, updater
+        from tests.test_addons import FakeResponse
+        from tests.test_proton import ge_tarball
+        self.use_fake_flatpak()
+        self.win.show_addons()
+        page = self.win.addons
+        self.wait_for(lambda: page.installed is not None)
+        ids = [a.id for a in addons.ADDONS]
+        item = page.list.item
+        discord, flatseal, ge = ids.index("discord"), ids.index("flatseal"), ids.index("ge-proton")
+        self.assertIn("Not installed", item(discord).text())
+        # A Game Mode app: installed and added to Steam.
+        self.answers = [0]  # Install
+        page._activate(item(discord))
+        self.assertEqual(self.asked[-1], "Install Discord?")
+        self.wait_for(lambda: "Installed  ·  In Steam" in item(discord).text())
+        # A Desktop Mode tool: installed only.
+        self.answers = [0]
+        page._activate(item(flatseal))
+        self.wait_for(lambda: not self.win.busy_with_quietly("addon") and page.installed is not None
+                      and "Not installed" not in item(flatseal).text())
+        self.assertEqual([a.id for a in core.Library(self.paths).load()], ["addon-discord"])
+        # Uninstalling Discord removes its shortcut and the app.
+        self.answers = [2, 0]  # Uninstall; Uninstall (confirm)
+        page._activate(item(discord))
+        self.assertEqual(self.asked[-1], "Uninstall Discord?")
+        self.wait_for(lambda: page.installed is not None and "Not installed" in item(discord).text())
+        self.assertEqual(core.Library(self.paths).load(), [])
+        self.assertEqual(core.steam_shortcuts([self.steam]), [])
+        # GE-Proton, from (a faked) GitHub.
+        tar = ge_tarball()
+        files = {proton.RELEASES_API: json.dumps({"assets": [
+                     {"name": "GE-Proton10-99.tar.gz", "browser_download_url": "https://x.invalid/t", "size": len(tar)},
+                     {"name": "GE-Proton10-99.sha512sum", "browser_download_url": "https://x.invalid/s"}]}).encode(),
+                 "https://x.invalid/t": tar, "https://x.invalid/s": hashlib.sha512(tar).hexdigest().encode()}
+        orig = updater._open
+        updater._open = lambda url, timeout, headers=None: FakeResponse(files[url])
+        try:
+            self.assertIn("Installed (GE-Proton9-20)", item(ge).text())
+            self.answers = [0]  # Download and install
+            page._activate(item(ge))
+            self.wait_for(lambda: "Installed (GE-Proton10-99)" in item(ge).text())
+            self.assertEqual(self.asked[-1], "Install GE-Proton10-99?")
+        finally:
+            updater._open = orig
 
     def test_remove_duplicate_shortcuts_only_with_steam_closed(self):
         vdf = self.steam / "userdata/12345/config/shortcuts.vdf"
