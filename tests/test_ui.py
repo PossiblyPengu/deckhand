@@ -311,6 +311,33 @@ class TestWindow(Env):
         self.assertIn("fixed:vcrun", app.options)
         self.assertIn("vc_redist.x64.exe /install", (Path(app.prefix) / "proton-args.txt").read_text())
 
+    def test_saves_backed_up_on_uninstall_come_back_after_reinstalling(self):
+        from deckhand import saves
+        inst = self.add_installer("Cool Game Setup.exe", 10)
+        self.win.start_install(inst)
+        self.wait_for(lambda: self.win.stack.currentWidget() is self.win.done)
+        self.assertFalse(self.win.done.restore_btn.isVisible())  # no backups yet
+        app = core.Library(self.paths).load()[0]
+        save = Path(app.prefix) / "pfx/drive_c/users/steamuser/Saved Games/Cool/slot1.sav"
+        save.parent.mkdir(parents=True)
+        save.write_text("level 9")
+        self.win.show_installed()
+        self.answers = [0, 1]  # Uninstall; Back up saves, then uninstall
+        self.win.installed._activate(self.win.installed.list.item(0))
+        self.wait_for(lambda: core.Library(self.paths).load() == [])
+        self.assertEqual(len(saves.backups(self.paths, "Cool Game")), 1)
+        # Installed again: the Done page offers them back.
+        self.win.start_install(inst)
+        self.wait_for(lambda: self.win.stack.currentWidget() is self.win.done)
+        self.assertTrue(self.win.done.restore_btn.isVisible())
+        self.answers = [0]  # the newest backup
+        self.win.done.restore_btn.click()
+        app = core.Library(self.paths).load()[0]
+        restored = Path(app.prefix) / "pfx/drive_c/users/steamuser/Saved Games/Cool/slot1.sav"
+        self.wait_for(lambda: restored.is_file())
+        self.assertEqual(restored.read_text(), "level 9")
+        self.wait_for(lambda: not self.win.done.restore_btn.isVisible())
+
     def test_add_back_to_steam_from_installed_programs(self):
         inst = self.add_installer("Cool Game Setup.exe", 10)
         self.win.start_install(inst)

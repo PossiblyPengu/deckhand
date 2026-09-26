@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, addons, artwork, core, fixes, proton, steamgriddb, stores, streaming, theme, updater
+from . import __version__, addons, artwork, core, fixes, proton, saves, steamgriddb, stores, streaming, theme, updater
 from .nav import Nav
 from .widgets import ElideLabel, HintBar, Sheet, Steps, Tile, Toast, breakable, button, draw_glyph, label
 
@@ -745,6 +745,9 @@ class DonePage(Page):
         row.addStretch(1)
         self.delete_btn = button("", slot=self.delete_installer)
         row.addWidget(self.delete_btn)
+        self.restore_btn = button("", slot=lambda: self.app and self.win.restore_saves(
+            self.app, then=lambda: (self.restore_btn.hide(), self.done_btn.setFocus())))
+        row.addWidget(self.restore_btn)
         self.done_btn = button("Done", "primary", self.back)
         self.done_btn.setMinimumWidth(200)
         row.addWidget(self.done_btn)
@@ -772,6 +775,10 @@ class DonePage(Page):
             msg = "No Steam account was found on this Deck, so it couldn't be added to Steam."
         self.text.setText(f"{msg}\nSteam will launch: {Path(app.exe).name}")
         self.refresh_delete()
+        found = saves.backups(self.win.paths, app.name)
+        self.restore_btn.setVisible(bool(found))
+        if found:  # installed again: it can have its saves back
+            self.restore_btn.setText(f"Restore saves from {time.strftime('%b %d', time.localtime(saves.created(found[0])))}")
 
     def installer_files(self) -> list[Path]:
         if not self.app or not self.app.installer:
@@ -941,7 +948,10 @@ class InstalledPage(Page):
             actions.append(("Add to Steam", lambda: self.win.add_to_steam(app)))
         uninstall = len(actions)
         actions += [("Uninstall", lambda: self.win.uninstall(app, self.sizes.get(app.id))),
-                    ("Fix it: install what it's missing", lambda: self._fix(app))]
+                    ("Fix it: install what it's missing", lambda: self._fix(app)),
+                    ("Back up saves", lambda: self.win.back_up_saves(app))]
+        if saves.backups(self.win.paths, app.name):
+            actions.append(("Restore saves", lambda: self.win.restore_saves(app)))
         actions.append(("Close", None))
         choice = Sheet.ask(self, app.name, text, tuple(t for t, _f in actions), primary=len(actions) - 1,
                            danger=(uninstall,))
@@ -2504,16 +2514,27 @@ class MainWindow(QMainWindow):
             parts.append("its Steam shortcut and artwork" if app.steam_appid else "its shortcut")
         freed = f"This frees {core.human_size(size)}.\n\n" if size else ""
         text = freed + "Deletes " + "; ".join(parts) + "."
-        if Sheet.ask(self, f"Uninstall {app.name}?", text, ("Uninstall", "Keep"), primary=1, danger=(0,)) != 0:
+        has_saves = bool(saves.save_files(app))
+        buttons = ("Uninstall", "Back up saves, then uninstall", "Keep") if has_saves else ("Uninstall", "Keep")
+        choice = Sheet.ask(self, f"Uninstall {app.name}?", text, buttons, primary=len(buttons) - 1, danger=(0,))
+        if choice not in range(len(buttons) - 1):
             return
+        back_up = has_saves and choice == 1
         # Deleting a big game can take a while: do it in the background (the list shows it's going).
         self.flash(f"Uninstalling {app.name}…", ms=60_000)
+
+        def run(_status) -> bool:
+            if back_up:
+                saves.backup(app, self.paths)
+            return core.uninstall(app, self.paths)
 
         def finished(left_in_steam: bool) -> None:
             self.installed.sizes.pop(app.id, None)
             msg = f"{app.name} uninstalled"
             if size:
                 msg += f" — freed {core.human_size(size)}"
+            if back_up:
+                msg += " (saves backed up)"
             self.flash(msg)
             self.refresh_space()
             if self.stack.currentWidget() is self.installed:
@@ -2528,8 +2549,47 @@ class MainWindow(QMainWindow):
                           "Steam's list while Steam is open (Steam would undo it or duplicate it).\n\n"
                           + REMOVE_IN_STEAM, ("Close",))
 
-        self.run_worker(lambda _s: core.uninstall(app, self.paths), finished,
-                        lambda m: Sheet.ask(self, "Couldn't uninstall", m, ("Close",)), kind="uninstall")
+        self.run_worker(run, finished, lambda m: Sheet.ask(self, "Couldn't uninstall", m, ("Close",)),
+                        kind="uninstall")
+
+    # ── save backups ─────────────────────────────────────────────────────
+
+    def back_up_saves(self, app: core.App) -> None:
+        if self.busy_with("saves"):
+            return
+        self.flash(f"Backing up {app.name}'s saves…", ms=60_000)
+
+        def finished(archive: Path | None) -> None:
+            if archive is None:
+                self.flash(f"No saves found in {app.name}'s Windows folder", ms=5000)
+            else:
+                self.flash(f"Saves backed up ({core.human_size(archive.stat().st_size)})", ms=5000)
+
+        self.run_worker(lambda _s: saves.backup(app, self.paths), finished,
+                        lambda m: Sheet.ask(self, "Couldn't back up the saves", m, ("Close",)), kind="saves")
+
+    def restore_saves(self, app: core.App, then: Callable[[], None] = lambda: None) -> None:
+        """Pick one of the program's backups and put its saves back."""
+        found = saves.backups(self.paths, app.name)[:4]
+        if not found or self.busy_with("saves"):
+            return
+        if core.prefix_in_use(Path(app.prefix)):
+            Sheet.ask(self, app.name, f"{app.name} is running. Close it first (STEAM → Exit game).", ("Close",))
+            return
+        labels = [f"{time.strftime('%b %d, %Y  %H:%M', time.localtime(saves.created(b)))}  ·  "
+                  f"{core.human_size(b.stat().st_size)}" for b in found]
+        choice = Sheet.ask(self, f"Restore {app.name}'s saves?", "Puts the saves from a backup back into its Windows "
+                           "folder, replacing the ones with the same names.", (*labels, "Cancel"),
+                           primary=len(labels))
+        if not 0 <= choice < len(found):
+            return
+
+        def finished(count: int) -> None:
+            self.flash(f"Restored {count} file{'s' * (count != 1)} — play it from Steam", ms=5000)
+            then()
+
+        self.run_worker(lambda _s: saves.restore(app, found[choice]), finished,
+                        lambda m: Sheet.ask(self, "Couldn't restore the saves", m, ("Close",)), kind="saves")
 
     # ── updates ──────────────────────────────────────────────────────────
 
