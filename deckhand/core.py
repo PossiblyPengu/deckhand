@@ -1472,6 +1472,62 @@ class Installer:
         return app
 
 
+RUN_OK = {0, 1638 % 256, 1641 % 256, 3010 % 256}  # done; a newer one is there; done, restart wanted (exit
+# codes reach Linux as their lowest 8 bits)
+
+
+def run_in_prefix(app: App, target: Path, *args: str, roots: Iterable[Path] | None = None,
+                  log: Callable[[str], None] = lambda s: None) -> int:
+    """Run a Windows program (a runtime's installer, say) in an installed program's prefix with its
+    Proton, the way installs run (inside the Steam Linux Runtime when it's installed), and wait until
+    everything it started has finished. Returns its exit code."""
+    roots = list(steam_roots() if roots is None else roots)
+    rt = app.runtime
+    if not Path(rt.path).exists():  # the Proton it was installed with is gone: the best one still here
+        found = find_runtimes(roots)
+        if not found:
+            raise InstallError("NO_RUNTIME")
+        rt = found[0]
+    compat = Path(app.prefix)
+    home = Path.home().resolve()
+    mounts = [p for p in (Path(target).parent, compat) if not p.resolve().is_relative_to(home)]
+    env = runtime_env(rt, compat, roots[0] if roots else None, mounts)
+    entry = container_entry_point(Path(rt.path), roots) if rt.is_proton else None
+
+    def stream(cmd: list[str]) -> int:
+        log("$ " + " ".join(shlex.quote(c) for c in cmd))
+        proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                stdin=subprocess.DEVNULL, text=True, errors="replace", start_new_session=True)
+        assert proc.stdout is not None
+        with proc.stdout:
+            for line in proc.stdout:
+                log(line.rstrip("\n"))
+        return proc.wait()
+
+    rc = stream(sleep_inhibitor() + run_command(rt, target, *args, entry=entry, verb="waitforexitandrun"))
+    if rt.is_proton:  # installers hand off to other processes: wait for those too
+        stream(run_command(rt, "cmd.exe", "/c", "exit", entry=entry, verb="waitforexitandrun"))
+    ws = rt.wineserver()
+    if ws:
+        stream([ws, "-w"])
+    log(f"Exit code {rc}")
+    return rc
+
+
+def pe_machine(exe: Path) -> str:
+    """"x64" or "x86" for a Windows .exe, "" if it can't be read."""
+    try:
+        with open(exe, "rb") as f:
+            head = f.read(4096)
+        (pe,) = struct.unpack_from("<I", head, 0x3C)
+        if head[:2] != b"MZ" or head[pe:pe + 4] != b"PE\0\0":
+            return ""
+        (machine,) = struct.unpack_from("<H", head, pe + 4)
+    except (OSError, struct.error):
+        return ""
+    return {0x8664: "x64", 0x14C: "x86"}.get(machine, "")
+
+
 def _shared_folder(folder: Path) -> bool:
     """A folder that holds unrelated things (Downloads, Desktop, a drive's root…), not one program."""
     home = Path.home().resolve()

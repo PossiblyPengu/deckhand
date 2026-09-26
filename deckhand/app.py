@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, addons, artwork, core, proton, stores, streaming, theme, updater
+from . import __version__, addons, artwork, core, fixes, proton, stores, streaming, theme, updater
 from .nav import Nav
 from .widgets import ElideLabel, HintBar, Sheet, Steps, Tile, Toast, breakable, button, draw_glyph, label
 
@@ -836,14 +836,20 @@ class InstalledPage(Page):
         lay.setContentsMargins(*PAGE_MARGINS)
         lay.setSpacing(12)
         lay.addWidget(label("Installed programs", "h1"))
-        lay.addWidget(label("Pick a program to uninstall it, or to add it back to Steam. You play them from "
-                            "your Steam library.", "dim"))
+        lay.addWidget(label("Pick a program to fix it, back up its saves, uninstall it or add it back to Steam. "
+                            "You play them from your Steam library.", "dim"))
         self.list = QListWidget()
         self.list.setIconSize(QSize(44, 44))
         on_choose(self.list, self._activate)
         lay.addWidget(self.list, 1)
         self.empty = label("Nothing installed with Deckhand yet.", "muted")
         lay.addWidget(self.empty)
+        self.status = label("", "muted")
+        lay.addWidget(self.status)
+        self.bar = QProgressBar()
+        self.bar.setTextVisible(False)
+        self.bar.hide()
+        lay.addWidget(self.bar)
         self.apps: dict[str, core.App] = {}
         self.sizes: dict[str, int] = {}
         self.steam: dict[str, str] = {}  # app id → core.steam_state
@@ -919,29 +925,58 @@ class InstalledPage(Page):
             self.win.leftover_chosen(self.leftovers[key], self.sizes.get(key))
             return
         app = self.apps.get(key)
-        if app is None or self.win.busy_with("uninstall"):
+        if app is None or self.win.busy_with("uninstall") or self.win.busy_with("fix"):
             return
         state = self.steam.get(app.id, "out")
+        actions: list[tuple[str, Callable | None]] = []
         if state == "in":
-            self.win.uninstall(app, self.sizes.get(app.id))
+            text = "It's in your Steam library: play it from there."
+        elif state == "sent":
+            text = (f"Deckhand sent this to Steam {ago(app.steam_requested_at)}. Steam hasn't saved its list of "
+                    "shortcuts since, so Deckhand can't check it yet — look in your library under Non-Steam.\n\n"
+                    "Only send it again if it's not there: otherwise you'll get a duplicate.")
+            actions.append(("Send to Steam again", lambda: self.win.add_to_steam(app)))
+        else:
+            text = "This program isn't in your Steam library."
+            actions.append(("Add to Steam", lambda: self.win.add_to_steam(app)))
+        uninstall = len(actions)
+        actions += [("Uninstall", lambda: self.win.uninstall(app, self.sizes.get(app.id))),
+                    ("Fix it: install what it's missing", lambda: self._fix(app))]
+        actions.append(("Close", None))
+        choice = Sheet.ask(self, app.name, text, tuple(t for t, _f in actions), primary=len(actions) - 1,
+                           danger=(uninstall,))
+        if 0 <= choice < len(actions) and actions[choice][1] is not None:
+            actions[choice][1]()
+
+    def _fix(self, app: core.App) -> None:
+        """Install a runtime the program is missing into its prefix."""
+        available = fixes.available(app)
+        done = {o.split(":", 1)[1] for o in app.options if o.startswith("fixed:")}
+        text = ("If it won't start, or says a file is missing (MSVCP140.dll, d3dx9_43.dll, a .NET version…), install "
+                "what it needs into its own Windows setup. Deckhand downloads Microsoft's installers for it.\n\n"
+                + "\n".join(f"•  {f.name}: {f.blurb}" + ("  (installed)" if f.id in done else "") for f in available))
+        choice = Sheet.ask(self, f"Fix {app.name}", text, (*(f.name for f in available), "Cancel"),
+                           primary=len(available))
+        if not 0 <= choice < len(available):
             return
-        if state == "sent":
-            choice = Sheet.ask(self, app.name,
-                               f"Deckhand sent this to Steam {ago(app.steam_requested_at)}. Steam hasn't saved "
-                               "its list of shortcuts since, so Deckhand can't check it yet — look in your "
-                               "library under Non-Steam.\n\nOnly send it again if it's not there: otherwise "
-                               "you'll get a duplicate.", ("Uninstall", "Send to Steam again", "Cancel"), primary=2)
-            if choice == 0:
-                self.win.uninstall(app, self.sizes.get(app.id))
-            elif choice == 1:
-                self.win.add_to_steam(app)
-            return
-        choice = Sheet.ask(self, app.name, "This program isn't in your Steam library.",
-                           ("Add to Steam", "Uninstall", "Cancel"))
-        if choice == 0:
-            self.win.add_to_steam(app)
-        elif choice == 1:
-            self.win.uninstall(app, self.sizes.get(app.id))
+        fix = available[choice]
+        self.status.setText(f"Installing {fix.name} for {app.name}…")
+
+        def finished(_result) -> None:
+            self.status.setText("")
+            self.show_progress(None)
+            self.win.flash(f"{fix.name} installed for {app.name} — try it again from Steam", ms=6000)
+
+        def failed(message: str) -> None:
+            self.status.setText("")
+            self.show_progress(None)
+            if message == "NO_RUNTIME":
+                message = "No Proton is installed any more. Install Proton Experimental from Steam, then try again."
+            head, _, rest = message.partition("\n\n")
+            Sheet.ask(self, f"Couldn't install {fix.name}", head, ("Close",), detail=rest)
+
+        self.win.run_worker(lambda status: fixes.apply(fix, app, self.win.paths, status), finished, failed,
+                            status=self.status.setText, kind="fix", progress=self.show_progress)
 
     def enter(self) -> None:
         self.refresh()

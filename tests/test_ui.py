@@ -278,10 +278,10 @@ class TestWindow(Env):
         self.assertIn("In Steam", page.list.item(0).text())
         self.shot("10-installed", self.win)
         app = core.Library(self.paths).load()[0]
-        self.answers = [1]  # Keep
+        self.answers = [0, 2]  # Uninstall; Keep
         page._activate(page.list.item(0))
         self.assertTrue(Path(app.prefix).exists())
-        self.answers = [0]  # Uninstall
+        self.answers = [0, 0]  # Uninstall; Uninstall
         page._activate(page.list.item(0))
         self.assertIn("Uninstall Cool Game?", self.asked)
         self.wait_for(lambda: not Path(app.prefix).exists())  # deleted in the background
@@ -290,6 +290,26 @@ class TestWindow(Env):
         self.assertEqual(core.Library(self.paths).load(), [])
         self.assertIs(self.win.stack.currentWidget(), self.win.home)
         self.assertFalse(self.win.home.manage_btn.isVisible())
+
+    def test_fix_it_installs_a_runtime_into_the_program(self):
+        from deckhand import updater
+        from tests.test_addons import FakeResponse
+        self.win.start_install(self.add_installer("Cool Game Setup.exe", 10))
+        self.wait_for(lambda: self.win.stack.currentWidget() is self.win.done)
+        self.win.show_installed()
+        page = self.win.installed
+        orig = updater._open
+        updater._open = lambda url, timeout, headers=None: FakeResponse(b"MZ" + b"\0" * 64)
+        try:
+            self.answers = [1, 0]  # Fix it; Visual C++ runtimes
+            page._activate(page.list.item(0))
+            self.assertEqual(self.asked[-2:], ["Cool Game", "Fix Cool Game"])
+            self.wait_for(lambda: not self.win.busy_with_quietly("fix"))
+        finally:
+            updater._open = orig
+        app = core.Library(self.paths).load()[0]
+        self.assertIn("fixed:vcrun", app.options)
+        self.assertIn("vc_redist.x64.exe /install", (Path(app.prefix) / "proton-args.txt").read_text())
 
     def test_add_back_to_steam_from_installed_programs(self):
         inst = self.add_installer("Cool Game Setup.exe", 10)
@@ -322,7 +342,7 @@ class TestWindow(Env):
             self.win.show_installed()
             page = self.win.installed
             self.assertIn("Sent to Steam", page.list.item(0).text())
-            self.answers = [2]  # Cancel: it's probably there already
+            self.answers = [-1]  # Back: it's probably there already
             page._activate(page.list.item(0))
             self.assertEqual(self.asked[-1], "Cool Game")
             self.pump(10)
