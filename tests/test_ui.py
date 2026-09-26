@@ -772,6 +772,29 @@ class TestWindow(Env):
             steamgriddb.art, steamgriddb.check_key = orig_art, orig_check
             Sheet.ask_text = staticmethod(orig_ask_text)
 
+    def test_free_up_space_deletes_the_safe_leftovers_first(self):
+        from deckhand import cleanup
+        apps = self.steam / "steamapps"
+        (apps / "libraryfolders.vdf").write_text(f'"libraryfolders" {{ "0" {{ "path" "{self.steam}" '
+                                                 '"apps" { "100" "1" } } }')
+        for kind in ("shadercache", "compatdata"):
+            for appid in (100, 555):
+                (apps / kind / str(appid)).mkdir(parents=True)
+                (apps / kind / str(appid) / "f").write_bytes(b"x" * 2048)
+        orig = cleanup.name_games
+        cleanup.name_games = lambda items, fetch=None, limit=6: [setattr(i, "name", "Old Game") for i in items]
+        texts = []
+        from deckhand.widgets import Sheet
+        Sheet.ask = staticmethod(lambda parent, title, text="", *a, **k: (texts.append(text), 0)[1])
+        try:
+            self.win.free_up_space()
+            self.wait_for(lambda: not (apps / "shadercache/555").exists())
+        finally:
+            cleanup.name_games = orig
+        self.assertIn("Old Game (2 KB)", texts[0])
+        self.assertTrue((apps / "compatdata/555").exists())  # may hold saves: only with "Delete all of it"
+        self.assertTrue((apps / "shadercache/100").exists() and (apps / "compatdata/100").exists())
+
     def test_remove_duplicate_shortcuts_only_with_steam_closed(self):
         vdf = self.steam / "userdata/12345/config/shortcuts.vdf"
         e = {"appid": 1, "AppName": "Emu", "Exe": '"/emu"', "StartDir": '"/"', "LaunchOptions": ""}

@@ -34,7 +34,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, addons, artwork, core, fixes, proton, saves, steamgriddb, stores, streaming, theme, updater
+from . import (__version__, addons, artwork, cleanup, core, fixes, proton, saves, steamgriddb, stores, streaming,
+               theme, updater)
 from .nav import Nav
 from .widgets import ElideLabel, HintBar, Sheet, Steps, Tile, Toast, breakable, button, draw_glyph, label
 
@@ -2463,6 +2464,7 @@ class MainWindow(QMainWindow):
         items = [
             ("Check for updates", lambda: self.check_for_updates(manual=True)),
             ("Add Deckhand to Steam", self.add_self_to_steam),
+            ("Free up space", self.free_up_space),
             ("Remove duplicate Steam shortcuts", self.remove_duplicates),
             ("SteamGridDB art", self.steamgriddb_menu),
             ("Look for installers again", look_again),
@@ -2551,6 +2553,72 @@ class MainWindow(QMainWindow):
 
         self.run_worker(run, finished, lambda m: Sheet.ask(self, "Couldn't uninstall", m, ("Close",)),
                         kind="uninstall")
+
+    # ── free up space ────────────────────────────────────────────────────
+
+    def free_up_space(self) -> None:
+        # (an install, or a download for one, may be using what's in the downloads folder)
+        if self.thread is not None or self.pending is not None or \
+                any(self.busy_with_quietly(k) for k in ("store", "fix", "addon", "cleanup")):
+            self.flash("Finish what's running first")
+            return
+        self.flash("Looking for leftovers…", ms=60_000)
+
+        def run(_status) -> list[cleanup.Leftover]:
+            items = cleanup.find(paths=self.paths)
+            cleanup.name_games([i for i in items if i.kind == "compatdata"])
+            return items
+
+        self.run_worker(run, self._offer_cleanup, lambda m: Sheet.ask(self, "Free up space", m, ("Close",)),
+                        kind="cleanup")
+
+    def _offer_cleanup(self, items: list[cleanup.Leftover]) -> None:
+        self.toast.hide()
+        safe = [i for i in items if i.kind in ("shadercache", "download")]
+        setups = [i for i in items if i.kind == "compatdata"]
+
+        def total(xs) -> str:
+            return core.human_size(sum(x.size for x in xs))
+
+        lines = []
+        caches = [i for i in safe if i.kind == "shadercache"]
+        downloads = [i for i in safe if i.kind == "download"]
+        if caches:
+            lines.append(f"•  Shader caches of {len(caches)} game{'s' * (len(caches) != 1)} that aren't installed: "
+                         f"{total(caches)}. Safe to delete: Steam builds them again if you reinstall a game.")
+        if downloads:
+            lines.append(f"•  Deckhand's leftover downloads: {total(downloads)}.")
+        if setups:
+            biggest = ", ".join(f"{i.name or f'app {i.appid}'} ({core.human_size(i.size)})" for i in setups[:4])
+            lines.append(f"•  Windows setups (compatdata) of {len(setups)} game{'s' * (len(setups) != 1)} that aren't "
+                         f"installed: {total(setups)} — {biggest}{', …' if len(setups) > 4 else ''}. Games without "
+                         "Steam Cloud keep their saves in these.")
+        unfinished = core.orphan_prefixes(self.paths)
+        if unfinished:
+            lines.append(f"•  {len(unfinished)} unfinished install{'s' * (len(unfinished) != 1)}: see Installed "
+                         "programs.")
+        if not safe and not setups:
+            Sheet.ask(self, "Free up space", "Nothing left over by uninstalled games was found." +
+                      ("\n\n" + lines[0] if lines else ""), ("Close",))
+            return
+        actions = []
+        if safe:
+            actions.append((f"Delete the safe ones ({total(safe)})", safe))
+        if setups:
+            actions.append((f"Delete all of it ({total(safe + setups)})", safe + setups))
+        actions.append(("Close", None))
+        choice = Sheet.ask(self, "Free up space", "\n".join(lines), tuple(t for t, _x in actions),
+                           primary=len(actions) - 1, danger=(len(actions) - 2,) if setups else ())
+        if not 0 <= choice < len(actions) or actions[choice][1] is None:
+            return
+        chosen = actions[choice][1]
+
+        def done(freed: int) -> None:
+            self.flash(f"Freed {core.human_size(freed)}", ms=5000)
+            self.refresh_space()
+
+        self.run_worker(lambda _s: cleanup.delete(chosen), done,
+                        lambda m: Sheet.ask(self, "Couldn't delete everything", m, ("Close",)), kind="cleanup")
 
     # ── save backups ─────────────────────────────────────────────────────
 
