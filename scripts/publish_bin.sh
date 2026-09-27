@@ -9,7 +9,7 @@ NOTES="${1:-}"
 VERSION="$(python3 -c 'import deckhand; print(deckhand.__version__)')"
 
 python3 -m PyInstaller --noconfirm --clean --onefile --windowed --strip --name deckhand \
-  --paths . deckhand/__main__.py
+  --paths . --add-data deckhand/logos:deckhand/logos deckhand/__main__.py
 mkdir -p bin
 cp dist/deckhand bin/deckhand-linux-x86_64
 (cd bin && sha256sum deckhand-linux-x86_64 > deckhand-linux-x86_64.sha256)

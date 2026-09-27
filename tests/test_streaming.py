@@ -1,6 +1,8 @@
 """Streaming services: installed from (a fake) Flathub and added to (a fake) Steam."""
 import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -16,7 +18,14 @@ case "$1" in
   remotes) [ -n "$FAKE_FLATPAK_NO_SYSTEM" ] || echo flathub ;;
   install) [ -n "$FAKE_FLATPAK_FAIL" ] && { echo "error: no network"; exit 1; }
            [ "$2" = --system ] && [ -n "$FAKE_FLATPAK_SYSTEM_DENIED" ] && { echo "error: Not authorized"; exit 1; }
-           echo "Installing ${@: -1}"; echo "${@: -1}" >> "$db" ;;
+           echo "Installing ${@: -1}"; echo "${@: -1}" >> "$db"; echo "$2 ${@: -1}" >> "$db.scope" ;;
+  info) # where it is: as recorded by install; apps put in the db by a test count as --user installs
+        grep -qxF -- "$2 ${@: -1}" "$db.scope" 2>/dev/null && exit 0
+        [ "$2" = --user ] && grep -qx "${@: -1}" "$db" 2>/dev/null && ! grep -qF -- " ${@: -1}" "$db.scope" 2>/dev/null && exit 0
+        exit 1 ;;
+  uninstall) grep -qx "${@: -1}" "$db" 2>/dev/null || { echo "error: ${@: -1} not installed"; exit 1; }
+             grep -vx "${@: -1}" "$db" > "$db.tmp"; mv "$db.tmp" "$db"
+             grep -vxF -- "$2 ${@: -1}" "$db.scope" > "$db.tmp" 2>/dev/null; mv "$db.tmp" "$db.scope" 2>/dev/null || true ;;
 esac
 exit 0
 '''
@@ -48,6 +57,12 @@ class TestStreaming(FlatpakEnv):
         self.assertIn("override --user --filesystem=/run/udev:ro com.google.Chrome", calls)
         script = Path(app.launcher).read_text()
         self.assertIn("flatpak run com.google.Chrome --kiosk", script)
+        self.assertIn("--window-size=1024,640", script)
+        self.assertIn("--force-device-scale-factor=1.25", script)
+        self.assertIn("--kiosk", script)
+        self.assertIn("--app=https://www.xbox.com/play", script)
+        self.assertIn("--start-maximized", script)
+        self.assertIn("SteamGamepadUI", script)
         self.assertIn("https://www.xbox.com/play", script)
         self.assertEqual((app.kind, app.id, app.steam_added), ("stream", "stream-xbox-cloud", "file"))
         self.assertTrue(core.in_steam(app, [self.steam]))
@@ -57,6 +72,42 @@ class TestStreaming(FlatpakEnv):
         streaming.set_up(streaming.service("geforce-now"), self.paths, roots=[self.steam])
         self.assertEqual(len([c for c in self.calls() if c.startswith("install")]), before)
         self.assertEqual(len(core.steam_shortcuts([self.steam])), 2)
+
+    def test_launcher_uses_kiosk_in_game_mode_and_a_window_on_the_desktop(self):
+        app = streaming.set_up(streaming.service("xbox-cloud"), self.paths, roots=[self.steam])
+        launcher = app.launcher
+        self.assertIn("steam -silent", Path(launcher).read_text())
+        bindir = self.tmp / "flatpak-bin"
+        steam = bindir / "steam"
+        steam.write_text('#!/bin/bash\necho "steam $@" >> "$FAKE_FLATPAK_LOG"\n')
+        steam.chmod(0o755)
+        pgrep = bindir / "pgrep"
+        pgrep.write_text("#!/bin/sh\nexit 1\n")
+        pgrep.chmod(0o755)
+        self.flatpak_log.write_text("")
+        game_mode = dict(os.environ, PATH=f"{self.tmp / 'flatpak-bin'}:{os.environ['PATH']}", SteamGamepadUI="1")
+        subprocess.run(["bash", launcher], env=game_mode, check=True)
+        game_calls = self.calls()
+        game_run = next(c for c in game_calls if c.startswith("run "))
+        self.assertIn("--kiosk", game_run)
+
+        self.flatpak_log.write_text("")
+        desktop = dict(os.environ)
+        for key in ("SteamGamepadUI", "XDG_CURRENT_DESKTOP", "GAMESCOPE_WAYLAND_DISPLAY"):
+            desktop.pop(key, None)
+        desktop["PATH"] = f"{self.tmp / 'flatpak-bin'}:{desktop['PATH']}"
+        subprocess.run(["bash", launcher], env=desktop, check=True)
+        desktop_calls = self.calls()
+        desktop_run = next(c for c in desktop_calls if c.startswith("run "))
+        self.assertIn("--app=https://www.xbox.com/play", desktop_run)
+        self.assertIn("--start-maximized", desktop_run)
+        self.assertNotIn("--kiosk", desktop_run)
+        for _ in range(50):
+            desktop_calls = self.calls()
+            if "steam -silent" in desktop_calls:
+                break
+            time.sleep(0.02)
+        self.assertIn("steam -silent", desktop_calls)
 
     def test_an_installed_edge_is_used_instead_of_installing_chrome(self):
         self.flatpak_db.write_text("com.microsoft.Edge\n")
@@ -91,6 +142,18 @@ class TestStreaming(FlatpakEnv):
         self.assertEqual(streaming.install_app("org.chromium.Chromium"), "user")
         self.assertNotIn("install --system -y --noninteractive flathub org.chromium.Chromium", self.calls())
 
+    def test_uninstall_removes_it_from_where_it_was_installed(self):
+        streaming.install_app("com.google.Chrome")  # system-wide, like Discover
+        streaming.uninstall_app("com.google.Chrome")
+        self.assertIn("uninstall --system -y --noninteractive com.google.Chrome", self.calls())
+        self.assertNotIn("com.google.Chrome", streaming.installed_apps())
+        os.environ["FAKE_FLATPAK_SYSTEM_DENIED"] = "1"
+        streaming.install_app("com.moonlight_stream.Moonlight")  # fell back to the user
+        streaming.uninstall_app("com.moonlight_stream.Moonlight")
+        self.assertIn("uninstall --user -y --noninteractive com.moonlight_stream.Moonlight", self.calls())
+        with self.assertRaises(core.InstallError):
+            streaming.uninstall_app("org.example.NotThere")
+
     def test_failed_install_explains_and_adds_nothing(self):
         os.environ["FAKE_FLATPAK_FAIL"] = "1"
         with self.assertRaises(core.InstallError) as ctx:
@@ -122,6 +185,7 @@ class TestStreaming(FlatpakEnv):
         launcher = Path(app.launcher).read_text()
         self.assertIn("flatpak run org.chromium.Chromium --kiosk", launcher)
         self.assertIn(f"--load-extension={ext}", launcher)
+        self.assertEqual(launcher.count(f"--load-extension={ext}"), 2)
         self.assertIn("curl -fsL", launcher)  # keeps itself up to date
         self.assertEqual(app.options, ["better-xcloud"])
         # Setting it up again keeps the choice; turning it off goes back to Chrome. One shortcut throughout.

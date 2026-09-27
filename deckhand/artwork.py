@@ -6,6 +6,7 @@ program's own icon and name and drop it where Steam looks for custom art
 """
 from __future__ import annotations
 
+import functools
 import zlib
 from pathlib import Path
 
@@ -37,6 +38,13 @@ def save_icon(img: QImage, path: Path) -> str:
         img = img.scaled(256, 256, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
     img.save(str(path), "PNG")
     return str(path)
+
+
+@functools.lru_cache(maxsize=None)
+def logo(key: str) -> QImage | None:
+    """A streaming service's, game store's or add-on's own logo (core.logo_file)."""
+    path = core.logo_file(key)
+    return load_icon(str(path)) if path else None
 
 
 def load_icon(path: str) -> QImage | None:
@@ -148,22 +156,31 @@ def render(kind: str, name: str, icon: QImage | None) -> QImage:
     return img
 
 
-def write_steam_artwork(appid: int, name: str, icon: QImage | None, grid_dirs: list[Path]) -> list[str]:
-    """Save artwork for a shortcut in every Steam user's grid folder. Returns the files written."""
+def write_steam_artwork(appid: int, name: str, icon: QImage | None, grid_dirs: list[Path],
+                        downloaded: dict[str, bytes] | None = None) -> list[str]:
+    """Save artwork for a shortcut in every Steam user's grid folder. Returns the files written.
+    `downloaded`: image files to use instead of drawing (by kind, e.g. from SteamGridDB)."""
     written: list[str] = []
     if not appid:
         return written
-    images = {kind: render(kind, name, icon) for kind in STEAM_ART}
+    downloaded = downloaded or {}
+    images = {kind: render(kind, name, icon) for kind in STEAM_ART if kind not in downloaded}
     for grid in grid_dirs:
         try:
             grid.mkdir(parents=True, exist_ok=True)
         except OSError:
             continue
-        for kind, img in images.items():
-            target = grid / f"{appid}{kind}.png"
-            if any(target.with_suffix(ext).exists() for ext in (".png", ".jpg", ".jpeg", ".webp")):
+        for kind in STEAM_ART:
+            ext = ".jpg" if downloaded.get(kind, b"")[:3] == b"\xff\xd8\xff" else ".png"
+            target = grid / f"{appid}{kind}{ext}"
+            if any(target.with_suffix(e).exists() for e in (".png", ".jpg", ".jpeg", ".webp")):
                 continue  # user's own art (SteamGridDB, Decky…) wins
-            if img.save(str(target), "PNG"):
+            try:
+                ok = target.write_bytes(downloaded[kind]) > 0 if kind in downloaded else \
+                    images[kind].save(str(target), "PNG")
+            except OSError:
+                ok = False
+            if ok:
                 written.append(str(target))
     return written
 

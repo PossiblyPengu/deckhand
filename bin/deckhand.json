@@ -1,5 +1,5 @@
 {
-  "version": "4.1.1",
-  "sha256": "953d5ba44765186e70cf1cf3ee07fafcaffbe63eeca9dcc9c6482ac1175037c2",
-  "notes": "Fixes: uninstalling now also removes a program's folder on D: when that folder already existed before the install (programs installed earlier get it recorded on the next start), and the DirectX setup log is no longer copied into the install log twice."
+  "version": "4.2.3",
+  "sha256": "43e38acf3164c773891d0479970eb88f9fe7171d5240c467facdc0dd8ea747e9",
+  "notes": "Apps from Flathub are now installed the way Discover does it, so Discover keeps them up to date. Uninstalling a program also removes its folder on D: when that folder existed before the install, and the DirectX log is no longer shown twice."
 }

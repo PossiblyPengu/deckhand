@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPlainTextEdit,
     QPushButton,
     QSizePolicy,
@@ -39,7 +40,7 @@ def button(text: str, obj: str = "", slot: Callable | None = None) -> QPushButto
 
 
 def draw_glyph(p: QPainter, r: QRectF, kind: str, color: QColor) -> None:
-    """Simple vector icons (no icon font needed): 'folder', 'download', 'up', 'signal', 'stack', 'disc'."""
+    """Simple vector icons (no icon font needed): 'folder', 'download', 'up', 'signal', 'bag', 'stack', 'disc'…"""
     pen = QPen(color, max(3.0, r.width() * 0.07))
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
@@ -84,6 +85,15 @@ def draw_glyph(p: QPainter, r: QRectF, kind: str, color: QColor) -> None:
     elif kind == "menu":
         for k in (0.28, 0.5, 0.72):
             p.drawLine(int(x + w * 0.18), int(y + h * k), int(x + w * 0.82), int(y + h * k))
+    elif kind == "bag":  # game stores: a shopping bag
+        body = QPainterPath()
+        body.moveTo(x + w * 0.14, y + h * 0.34)
+        body.lineTo(x + w * 0.86, y + h * 0.34)
+        body.lineTo(x + w * 0.82, y + h * 0.9)
+        body.lineTo(x + w * 0.18, y + h * 0.9)
+        body.closeSubpath()
+        p.drawPath(body)
+        p.drawArc(QRectF(x + w * 0.33, y + h * 0.1, w * 0.34, h * 0.42), 0, 180 * 16)
     elif kind == "plus":  # add-ons: a rounded square with a plus
         p.drawRoundedRect(r.adjusted(w * 0.08, h * 0.08, -w * 0.08, -h * 0.08), w * 0.18, h * 0.18)
         p.drawLine(int(x + w / 2), int(y + h * 0.3), int(x + w / 2), int(y + h * 0.7))
@@ -237,7 +247,8 @@ class Sheet(QWidget):
     current: "Sheet | None" = None  # the sheet on top, if any
 
     def __init__(self, parent: QWidget, title: str, text: str = "", buttons: tuple[str, ...] = ("OK",),
-                 primary: int = 0, danger: tuple[int, ...] = (), detail: str = ""):
+                 primary: int = 0, danger: tuple[int, ...] = (), detail: str = "", field: str | None = None,
+                 value: str = ""):
         top = parent.window()
         super().__init__(top)
         self.top = top
@@ -265,6 +276,13 @@ class Sheet(QWidget):
         lay.addWidget(label(title, "h2"))
         if text:
             lay.addWidget(label(text, "dim"))
+        self.field: QLineEdit | None = None
+        self.value = value
+        if field is not None:  # a line of text to type: `field` is its placeholder
+            self.field = QLineEdit(value)
+            self.field.setPlaceholderText(field)
+            self.field.returnPressed.connect(lambda: self._pick(primary))
+            lay.addWidget(self.field)
         if detail:
             box = QPlainTextEdit(detail)
             box.setReadOnly(True)
@@ -304,7 +322,9 @@ class Sheet(QWidget):
         self.setGeometry(self.top.rect())
         self.show()
         self.raise_()
-        if self.buttons:
+        if self.field is not None:
+            self.field.setFocus()
+        elif self.buttons:
             self.buttons[self.primary].setFocus()
         self._loop = QEventLoop()
         self._loop.exec()
@@ -323,6 +343,8 @@ class Sheet(QWidget):
 
     def _pick(self, i: int) -> None:
         self.choice = i
+        if self.field is not None:
+            self.value = self.field.text()
         if self._loop is not None:
             self._loop.quit()
 
@@ -349,6 +371,14 @@ class Sheet(QWidget):
     @staticmethod
     def ask(parent: QWidget, title: str, text: str = "", buttons: tuple[str, ...] = ("OK",), **kw) -> int:
         return Sheet(parent, title, text, buttons, **kw).exec()
+
+    @staticmethod
+    def ask_text(parent: QWidget, title: str, text: str = "", buttons: tuple[str, ...] = ("OK",),
+                 placeholder: str = "", value: str = "", **kw) -> tuple[int, str]:
+        """Like ask, with a line of text to type: (chosen button, the text)."""
+        sheet = Sheet(parent, title, text, buttons, field=placeholder, value=value, **kw)
+        choice = sheet.exec()
+        return choice, sheet.value
 
 
 class ElideLabel(QLabel):

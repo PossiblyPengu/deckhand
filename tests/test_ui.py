@@ -278,10 +278,10 @@ class TestWindow(Env):
         self.assertIn("In Steam", page.list.item(0).text())
         self.shot("10-installed", self.win)
         app = core.Library(self.paths).load()[0]
-        self.answers = [1]  # Keep
+        self.answers = [0, 2]  # Uninstall; Keep
         page._activate(page.list.item(0))
         self.assertTrue(Path(app.prefix).exists())
-        self.answers = [0]  # Uninstall
+        self.answers = [0, 0]  # Uninstall; Uninstall
         page._activate(page.list.item(0))
         self.assertIn("Uninstall Cool Game?", self.asked)
         self.wait_for(lambda: not Path(app.prefix).exists())  # deleted in the background
@@ -290,6 +290,53 @@ class TestWindow(Env):
         self.assertEqual(core.Library(self.paths).load(), [])
         self.assertIs(self.win.stack.currentWidget(), self.win.home)
         self.assertFalse(self.win.home.manage_btn.isVisible())
+
+    def test_fix_it_installs_a_runtime_into_the_program(self):
+        from deckhand import updater
+        from tests.test_addons import FakeResponse
+        self.win.start_install(self.add_installer("Cool Game Setup.exe", 10))
+        self.wait_for(lambda: self.win.stack.currentWidget() is self.win.done)
+        self.win.show_installed()
+        page = self.win.installed
+        orig = updater._open
+        updater._open = lambda url, timeout, headers=None: FakeResponse(b"MZ" + b"\0" * 64)
+        try:
+            self.answers = [1, 0]  # Fix it; Visual C++ runtimes
+            page._activate(page.list.item(0))
+            self.assertEqual(self.asked[-2:], ["Cool Game", "Fix Cool Game"])
+            self.wait_for(lambda: not self.win.busy_with_quietly("fix"))
+        finally:
+            updater._open = orig
+        app = core.Library(self.paths).load()[0]
+        self.assertIn("fixed:vcrun", app.options)
+        self.assertIn("vc_redist.x64.exe /install", (Path(app.prefix) / "proton-args.txt").read_text())
+
+    def test_saves_backed_up_on_uninstall_come_back_after_reinstalling(self):
+        from deckhand import saves
+        inst = self.add_installer("Cool Game Setup.exe", 10)
+        self.win.start_install(inst)
+        self.wait_for(lambda: self.win.stack.currentWidget() is self.win.done)
+        self.assertFalse(self.win.done.restore_btn.isVisible())  # no backups yet
+        app = core.Library(self.paths).load()[0]
+        save = Path(app.prefix) / "pfx/drive_c/users/steamuser/Saved Games/Cool/slot1.sav"
+        save.parent.mkdir(parents=True)
+        save.write_text("level 9")
+        self.win.show_installed()
+        self.answers = [0, 1]  # Uninstall; Back up saves, then uninstall
+        self.win.installed._activate(self.win.installed.list.item(0))
+        self.wait_for(lambda: core.Library(self.paths).load() == [])
+        self.assertEqual(len(saves.backups(self.paths, "Cool Game")), 1)
+        # Installed again: the Done page offers them back.
+        self.win.start_install(inst)
+        self.wait_for(lambda: self.win.stack.currentWidget() is self.win.done)
+        self.assertTrue(self.win.done.restore_btn.isVisible())
+        self.answers = [0]  # the newest backup
+        self.win.done.restore_btn.click()
+        app = core.Library(self.paths).load()[0]
+        restored = Path(app.prefix) / "pfx/drive_c/users/steamuser/Saved Games/Cool/slot1.sav"
+        self.wait_for(lambda: restored.is_file())
+        self.assertEqual(restored.read_text(), "level 9")
+        self.wait_for(lambda: not self.win.done.restore_btn.isVisible())
 
     def test_add_back_to_steam_from_installed_programs(self):
         inst = self.add_installer("Cool Game Setup.exe", 10)
@@ -322,7 +369,7 @@ class TestWindow(Env):
             self.win.show_installed()
             page = self.win.installed
             self.assertIn("Sent to Steam", page.list.item(0).text())
-            self.answers = [2]  # Cancel: it's probably there already
+            self.answers = [-1]  # Back: it's probably there already
             page._activate(page.list.item(0))
             self.assertEqual(self.asked[-1], "Cool Game")
             self.pump(10)
@@ -391,7 +438,8 @@ class TestWindow(Env):
         os.environ.update(PATH=f"{bindir}:{os.environ['PATH']}", FAKE_FLATPAK_LOG=str(self.tmp / "fp.log"),
                           FAKE_FLATPAK_DB=str(self.tmp / "fp.db"))
         self.win.go_home()
-        self.win.on_action("rb")  # R1: next section
+        for _ in range(2):
+            self.win.on_action("rb")  # R1 twice: Install → Stores → Stream
         self.assertIs(self.win.stack.currentWidget(), self.win.streaming)
         self.assertTrue(self.win.stations["stream"].isChecked())
         page = self.win.streaming
@@ -407,12 +455,48 @@ class TestWindow(Env):
         app = core.Library(self.paths).load()[0]
         self.assertTrue(app.artwork)
         self.win.go_home()
-        self.assertFalse(self.win.home.manage_btn.isVisible())  # streams aren't "installed programs"
-        self.win.show_streaming()
-        self.answers = [1, 0]  # Remove it (after "Turn Better xCloud on"); Remove (confirm)
-        page._activate(page.list.item(0))
+        self.assertTrue(self.win.home.manage_btn.isVisible())
+        self.win.show_installed()
+        self.assertEqual(self.win.installed.list.count(), 1)
+        item = self.win.installed.list.item(0).text()
+        self.assertIn("Xbox Cloud Gaming", item)
+        self.assertIn("Streaming service", item)
+        self.assertIn("In Steam", item)
+        self.answers = [0, 0]  # Remove; Remove (confirm)
+        self.win.installed._activate(self.win.installed.list.item(0))
         self.wait_for(lambda: core.Library(self.paths).load() == [])
+        self.wait_for(lambda: self.win.installed.list.count() == 0)
+        self.assertTrue(self.win.installed.empty.isVisible())
         self.assertEqual(core.steam_shortcuts([self.steam]), [])
+
+    def test_old_streaming_launchers_are_rewritten_on_start(self):
+        from tests.test_streaming import FAKE_FLATPAK
+        bindir = self.tmp / "flatpak-bin"
+        bindir.mkdir()
+        (bindir / "flatpak").write_text(FAKE_FLATPAK)
+        (bindir / "flatpak").chmod(0o755)
+        db = self.tmp / "fp.db"
+        db.write_text("com.google.Chrome\n")
+        os.environ.update(PATH=f"{bindir}:{os.environ['PATH']}", FAKE_FLATPAK_LOG=str(self.tmp / "fp.log"),
+                          FAKE_FLATPAK_DB=str(db))
+        self.paths.launchers.mkdir(parents=True, exist_ok=True)
+        launcher = self.paths.launchers / "stream-xbox-cloud.sh"
+        old_args = ("exec flatpak run com.google.Chrome --kiosk --start-fullscreen --window-size=1280,800"
+                    " --force-device-scale-factor=1.25 https://www.xbox.com/play")
+        launcher.write_text(f"#!/bin/bash\n{old_args}\n")
+        app = core.App(id="stream-xbox-cloud", name="Xbox Cloud Gaming", kind="stream", exe=str(launcher),
+                       launcher=str(launcher), prefix="", runtime_name="", runtime_kind="", runtime_path="")
+        core.Library(self.paths).upsert(app)
+        self.win.refresh_launchers()
+        self.wait_for(lambda: "1024,640" in launcher.read_text())
+        self.assertIn("--window-size=1024,640", launcher.read_text())
+        self.assertNotIn("1280,800", launcher.read_text())
+        # flatpak listing nothing must not downgrade a working launcher to Chrome.
+        db.write_text("")
+        launcher.write_text(f"#!/bin/bash\n{old_args}\n")
+        self.win.refresh_launchers()
+        self.wait_for(lambda: not self.win.workers)
+        self.assertIn("1280,800", launcher.read_text())
 
     def test_xbox_dialog_says_which_browser_each_choice_installs(self):
         from tests.test_streaming import FAKE_FLATPAK
@@ -437,11 +521,43 @@ class TestWindow(Env):
             page._activate(page.list.item(0))  # answers 1: Add with Better xCloud
             self.assertIn("Add to Steam: opens in Google Chrome (Deckhand installs it", texts[-1])
             self.assertIn("Add with Better xCloud: opens in Chromium (Deckhand installs it", texts[-1])
+            self.assertIn("In Desktop Mode it opens as a window you can close; STEAM + X opens the keyboard.",
+                          texts[-1])
             self.wait_for(lambda: "Better xCloud on (Chromium)" in page.list.item(0).text())
             installs = [c for c in log.read_text().splitlines() if c.startswith("install")]
             self.assertEqual(installs, ["install --system -y --noninteractive flathub org.chromium.Chromium"])
         finally:
             streaming.install_better_xcloud = orig
+
+    def test_services_stores_and_add_ons_show_their_logos(self):
+        from deckhand import app as app_mod, artwork
+        for page in (self.win.stores, self.win.streaming, self.win.addons):
+            self.win.go(page)
+            for i in range(page.list.count()):
+                it = page.list.item(i)
+                self.assertIsNotNone(artwork.logo(it.data(Qt.ItemDataRole.UserRole)), it.text())
+        # (a key without a logo still gets its initials)
+        self.assertFalse(app_mod.logo_icon("nope", "No Logo", "#123456").isNull())
+        self.shot("streaming")
+
+    def test_a_service_added_before_logos_gets_its_logo(self):
+        from deckhand import app as app_mod, streaming
+        svc = streaming.service("moonlight")
+        installed = {svc.app}
+        launcher = streaming.write_launcher(svc, self.paths, installed)
+        old = core.App(id="stream-moonlight", name="Moonlight", exe=str(launcher), prefix="", runtime_name="",
+                       runtime_kind="", runtime_path="", launcher=str(launcher), kind="stream")
+        core.add_to_steam(old, [self.steam])
+        core.Library(self.paths).upsert(old)
+        win = app_mod.MainWindow(self.paths, use_nav=False, check_updates=False)
+        try:
+            app = core.Library(self.paths).load()[0]
+            self.assertEqual(Path(app.icon), self.paths.icons / "stream-moonlight.png")
+            self.assertTrue(app.artwork and all(Path(f).is_file() for f in app.artwork))
+            self.assertIn(f"Icon={app.icon}", core.desktop_entry_path(app).read_text())
+        finally:
+            win.close()
+            win.deleteLater()
 
     def test_a_service_already_in_steam_is_shown_and_not_added_twice(self):
         vdf = self.steam / "userdata/12345/config/shortcuts.vdf"
@@ -471,8 +587,8 @@ class TestWindow(Env):
         from deckhand import addons
         from tests.test_addons import FakeResponse
         self.win.go_home()
-        for _ in range(2):
-            self.win.on_action("rb")  # R1 twice: Install → Stream → Add-ons
+        for _ in range(3):
+            self.win.on_action("rb")  # R1 three times: Install → Stores → Stream → Add-ons
         page = self.win.addons
         self.assertIs(self.win.stack.currentWidget(), page)
         self.assertTrue(self.win.stations["addons"].isChecked())
@@ -491,9 +607,231 @@ class TestWindow(Env):
             self.answers = [0, 1]  # Download EmuDeck; (Game Mode) not now
             page._activate(page.list.item(1))
             self.wait_for(lambda: (self.home / "Applications/EmuDeck.AppImage").exists())
+            self.wait_for(lambda: not self.win.busy_with_quietly("addon"))  # (then it offers to open it)
+            self.assertEqual(self.asked[-1], "EmuDeck")
             self.wait_for(lambda: "Downloaded" in page.list.item(1).text())
         finally:
             addons.emudeck_release, addons.updater._open = orig_release, orig_open
+
+    def test_stores_page_installs_a_windows_store_under_its_own_name(self):
+        from deckhand import stores
+        from tests.test_addons import FakeResponse
+        self.win.go_home()
+        self.win.on_action("rb")  # R1: Install → Stores
+        page = self.win.stores
+        self.assertIs(self.win.stack.currentWidget(), page)
+        self.assertTrue(self.win.stations["stores"].isChecked())
+        rows = [page.list.item(i).text().split("\n")[0] for i in range(page.list.count())]
+        self.assertEqual(rows, [s.name for s in stores.STORES])
+        row = rows.index("Battle.net")
+        self.assertIn("Not installed", page.list.item(row).text())
+        self.shot("stores")
+        orig = stores.updater._open
+        stores.updater._open = lambda url, timeout, headers=None: FakeResponse(b"MZ" + b"\0" * 100)
+        try:
+            self.answers = [0]  # Download and install
+            page._activate(page.list.item(row))
+            self.assertEqual(self.asked[-1], "Install Battle.net?")
+            self.wait_for(lambda: self.win.stack.currentWidget() is self.win.done)
+        finally:
+            stores.updater._open = orig
+        self.assertEqual(self.win.progress.heading.text(), "Installing Battle.net")
+        self.assertIn("Battle.net is in your Steam library", self.win.done.heading.text())
+        app = core.Library(self.paths).load()[0]
+        installer = stores.download_path(stores.store("battlenet"), self.paths)
+        self.assertEqual((app.kind, app.name, app.installer), ("program", "Battle.net", str(installer)))
+        self.assertTrue(core.in_steam(app, [self.steam]))
+        self.assertFalse(installer.exists())  # Deckhand's own download: deleted once installed
+        self.assertFalse(self.win.done.delete_btn.isVisible())
+        self.win.show_stores()
+        self.assertIn("Installed  ·  In Steam", page.list.item(row).text())
+        self.answers = [1]  # Close (the other choice: Uninstall)
+        page._activate(page.list.item(row))
+        self.assertEqual(self.asked[-1], "Battle.net")
+        self.assertEqual(len(core.Library(self.paths).load()), 1)
+
+    def test_a_cancelled_store_install_leaves_no_download(self):
+        from deckhand import stores
+        from tests.test_addons import FakeResponse
+        os.environ["FAKE_SLEEP"] = "3"
+        orig = stores.updater._open
+        stores.updater._open = lambda url, timeout, headers=None: FakeResponse(b"MZ" + b"\0" * 100)
+        try:
+            self.win.show_stores()
+            self.answers = [0]  # Download and install
+            self.win.stores._activate(self.win.stores.list.item(2))  # EA app
+            self.wait_for(lambda: "installer" in self.win.progress.status.text())
+        finally:
+            stores.updater._open = orig
+        self.assertEqual(self.win.progress.heading.text(), "Installing EA app")
+        installer = stores.download_path(stores.store("ea"), self.paths)
+        self.assertTrue(installer.exists())
+        self.answers = [1]  # Cancel install
+        self.win.cancel_install()
+        self.wait_for(lambda: self.win.thread is None)
+        self.assertFalse(installer.exists())
+        self.assertEqual(core.Library(self.paths).load(), [])
+
+    def test_a_failed_store_download_is_explained(self):
+        from deckhand import stores
+
+        def unreachable(url, timeout, headers=None):
+            raise stores.updater.UpdateError("HTTP 503 for " + url)
+
+        orig = stores.updater._open
+        stores.updater._open = unreachable
+        try:
+            self.win.show_stores()
+            page = self.win.stores
+            self.answers = [0, 0]  # Download and install; Close
+            page._activate(page.list.item(1))
+            self.wait_for(lambda: self.asked[-1] == "Couldn't set up Battle.net")
+        finally:
+            stores.updater._open = orig
+        self.assertIs(self.win.stack.currentWidget(), page)
+        self.assertEqual(core.Library(self.paths).load(), [])
+
+    def test_stores_page_adds_heroic_and_removes_it_again(self):
+        from tests.test_streaming import FAKE_FLATPAK
+        bindir = self.tmp / "flatpak-bin"
+        bindir.mkdir()
+        (bindir / "flatpak").write_text(FAKE_FLATPAK)
+        (bindir / "flatpak").chmod(0o755)
+        os.environ.update(PATH=f"{bindir}:{os.environ['PATH']}", FAKE_FLATPAK_LOG=str(self.tmp / "fp.log"),
+                          FAKE_FLATPAK_DB=str(self.tmp / "fp.db"))
+        self.win.show_stores()
+        page = self.win.stores
+        self.wait_for(lambda: page.installed is not None)
+        self.assertIn("Not added yet  ·  installs from Flathub", page.list.item(0).text())
+        self.answers = [0]  # Add to Steam
+        page._activate(page.list.item(0))
+        self.assertEqual(self.asked[-1], "Add Heroic Games Launcher to Steam?")
+        self.wait_for(lambda: "In Steam  ·  app installed ✓" in page.list.item(0).text())
+        app = core.Library(self.paths).load()[0]
+        self.assertEqual(app.kind, "store")
+        self.assertTrue(app.artwork)
+        self.win.go_home()
+        self.assertTrue(self.win.home.manage_btn.isVisible())
+        self.win.show_stores()
+        self.answers = [0, 0]  # Remove it; Remove (confirm)
+        page._activate(page.list.item(0))
+        self.assertEqual(self.asked[-1], "Remove Heroic Games Launcher?")
+        self.wait_for(lambda: core.Library(self.paths).load() == [])
+        self.assertEqual(core.steam_shortcuts([self.steam]), [])
+        self.wait_for(lambda: "Not added yet" in page.list.item(0).text())
+
+    def use_fake_flatpak(self):
+        from tests.test_streaming import FAKE_FLATPAK
+        bindir = self.tmp / "flatpak-bin"
+        bindir.mkdir()
+        (bindir / "flatpak").write_text(FAKE_FLATPAK)
+        (bindir / "flatpak").chmod(0o755)
+        os.environ.update(PATH=f"{bindir}:{os.environ['PATH']}", FAKE_FLATPAK_LOG=str(self.tmp / "fp.log"),
+                          FAKE_FLATPAK_DB=str(self.tmp / "fp.db"))
+
+    def test_addons_page_installs_flathub_apps_and_ge_proton(self):
+        import hashlib
+        import json
+        from deckhand import addons, proton, updater
+        from tests.test_addons import FakeResponse
+        from tests.test_proton import ge_tarball
+        self.use_fake_flatpak()
+        self.win.show_addons()
+        page = self.win.addons
+        self.wait_for(lambda: page.installed is not None)
+        ids = [a.id for a in addons.ADDONS]
+        item = page.list.item
+        discord, flatseal, ge = ids.index("discord"), ids.index("flatseal"), ids.index("ge-proton")
+        self.assertIn("Not installed", item(discord).text())
+        # A Game Mode app: installed and added to Steam.
+        self.answers = [0]  # Install
+        page._activate(item(discord))
+        self.assertEqual(self.asked[-1], "Install Discord?")
+        self.wait_for(lambda: "Installed  ·  In Steam" in item(discord).text())
+        # A Desktop Mode tool: installed only.
+        self.answers = [0]
+        page._activate(item(flatseal))
+        self.wait_for(lambda: not self.win.busy_with_quietly("addon") and page.installed is not None
+                      and "Not installed" not in item(flatseal).text())
+        self.assertEqual([a.id for a in core.Library(self.paths).load()], ["addon-discord"])
+        # Uninstalling Discord removes its shortcut and the app.
+        self.answers = [2, 0]  # Uninstall; Uninstall (confirm)
+        page._activate(item(discord))
+        self.assertEqual(self.asked[-1], "Uninstall Discord?")
+        self.wait_for(lambda: page.installed is not None and "Not installed" in item(discord).text())
+        self.assertEqual(core.Library(self.paths).load(), [])
+        self.assertEqual(core.steam_shortcuts([self.steam]), [])
+        # GE-Proton, from (a faked) GitHub.
+        tar = ge_tarball()
+        files = {proton.RELEASES_API: json.dumps({"assets": [
+                     {"name": "GE-Proton10-99.tar.gz", "browser_download_url": "https://x.invalid/t", "size": len(tar)},
+                     {"name": "GE-Proton10-99.sha512sum", "browser_download_url": "https://x.invalid/s"}]}).encode(),
+                 "https://x.invalid/t": tar, "https://x.invalid/s": hashlib.sha512(tar).hexdigest().encode()}
+        orig = updater._open
+        updater._open = lambda url, timeout, headers=None: FakeResponse(files[url])
+        try:
+            self.assertIn("Installed (GE-Proton9-20)", item(ge).text())
+            self.answers = [0]  # Download and install
+            page._activate(item(ge))
+            self.wait_for(lambda: "Installed (GE-Proton10-99)" in item(ge).text())
+            self.assertEqual(self.asked[-1], "Install GE-Proton10-99?")
+        finally:
+            updater._open = orig
+
+    def test_steamgriddb_key_is_asked_once_and_art_replaces_deckhands(self):
+        from deckhand import steamgriddb
+        from deckhand.widgets import Sheet
+        png = b"\x89PNG\r\n\x1a\nfrom-sgdb"
+        looked_up, keys = [], []
+        orig_art, orig_check, orig_ask_text = steamgriddb.art, steamgriddb.check_key, Sheet.ask_text
+        steamgriddb.art = lambda name, key: (looked_up.append((name, key)), {"p": png, "_hero": png})[1]
+        steamgriddb.check_key = lambda key: keys.append(key)
+        Sheet.ask_text = staticmethod(lambda parent, title, *a, **k: (self.asked.append(title), (0, "  abc123  "))[1])
+        try:
+            self.win.start_install(self.add_installer("Cool Game Setup.exe", 10))
+            self.wait_for(lambda: self.win.stack.currentWidget() is self.win.done)
+            app = core.Library(self.paths).load()[0]
+            grid = self.steam / "userdata/12345/config/grid"
+            self.assertNotEqual((grid / f"{app.steam_appid}p.png").read_bytes(), png)  # drawn by Deckhand
+            self.win.steamgriddb_menu()  # no key yet: asks for one, checks it, then gets art for everything
+            self.assertEqual(self.asked[-1], "SteamGridDB art")
+            self.wait_for(lambda: keys == ["abc123"])
+            self.wait_for(lambda: (grid / f"{app.steam_appid}p.png").read_bytes() == png)
+            self.assertEqual(self.paths.state()["steamgriddb_key"], "abc123")
+            self.assertEqual(looked_up, [("Cool Game", "abc123")])
+            self.assertEqual((grid / f"{app.steam_appid}_hero.png").read_bytes(), png)
+            self.assertNotEqual((grid / f"{app.steam_appid}_logo.png").read_bytes(), png)  # none on SGDB: drawn
+            self.wait_for(lambda: not self.win.busy_with_quietly("art"))
+            app = core.Library(self.paths).load()[0]
+            self.assertEqual(len(app.artwork), 4)
+            core.uninstall(app, self.paths, roots=[self.steam])
+            self.assertEqual(list(grid.iterdir()), [])  # it's ours: removed with the program
+        finally:
+            steamgriddb.art, steamgriddb.check_key = orig_art, orig_check
+            Sheet.ask_text = staticmethod(orig_ask_text)
+
+    def test_free_up_space_deletes_the_safe_leftovers_first(self):
+        from deckhand import cleanup
+        apps = self.steam / "steamapps"
+        (apps / "libraryfolders.vdf").write_text(f'"libraryfolders" {{ "0" {{ "path" "{self.steam}" '
+                                                 '"apps" { "100" "1" } } }')
+        for kind in ("shadercache", "compatdata"):
+            for appid in (100, 555):
+                (apps / kind / str(appid)).mkdir(parents=True)
+                (apps / kind / str(appid) / "f").write_bytes(b"x" * 2048)
+        orig = cleanup.name_games
+        cleanup.name_games = lambda items, fetch=None, limit=6: [setattr(i, "name", "Old Game") for i in items]
+        texts = []
+        from deckhand.widgets import Sheet
+        Sheet.ask = staticmethod(lambda parent, title, text="", *a, **k: (texts.append(text), 0)[1])
+        try:
+            self.win.free_up_space()
+            self.wait_for(lambda: not (apps / "shadercache/555").exists())
+        finally:
+            cleanup.name_games = orig
+        self.assertIn("Old Game (2 KB)", texts[0])
+        self.assertTrue((apps / "compatdata/555").exists())  # may hold saves: only with "Delete all of it"
+        self.assertTrue((apps / "shadercache/100").exists() and (apps / "compatdata/100").exists())
 
     def test_remove_duplicate_shortcuts_only_with_steam_closed(self):
         vdf = self.steam / "userdata/12345/config/shortcuts.vdf"

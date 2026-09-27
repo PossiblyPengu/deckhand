@@ -192,6 +192,33 @@ def download(update: Update, dest_dir: Path, progress: Callable[[int, int], None
         raise
 
 
+def download_to(url: str, dest: Path, progress: Callable[[int, int], None] = lambda done, total: None,
+                opener=None, digest=None, check: Callable[[bytes], None] | None = None) -> Path:
+    """Download a file for Deckhand to use: via a temporary file next to `dest`, so `dest` only ever
+    holds a whole download. `digest`: a hashlib object fed the data as it arrives. `check`: given the
+    file's first bytes, raises if it isn't what was expected (then nothing is kept)."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(f".{dest.name}.download")
+    try:
+        with (opener or (lambda u: _open(u, 60)))(url) as r, open(tmp, "wb") as f:
+            total = int(r.headers.get("Content-Length") or 0)
+            done = 0
+            while chunk := r.read(1 << 16):
+                f.write(chunk)
+                if digest is not None:
+                    digest.update(chunk)
+                done += len(chunk)
+                progress(done, total)
+        if check is not None:
+            with open(tmp, "rb") as f:
+                check(f.read(16))
+        os.replace(tmp, dest)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return dest
+
+
 def install(downloaded: Path, target: Path) -> None:
     """Swap the new app in. The running copy keeps working until it restarts."""
     os.replace(downloaded, target)

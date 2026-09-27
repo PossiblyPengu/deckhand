@@ -10,7 +10,7 @@ Deckhand is an installer, not a launcher: once something is installed you play i
 2. Click through the installer as usual.
 3. Done: the program is in your Steam library, with its icon and library artwork.
 
-Built for the Deck: four sections down the left (**Install · Stream · Add-ons · Installed**, switch with **L1/R1** or tap), full controller support (D-pad/stick to move, **A** select, **B** back, **X** browse, **☰** menu), big touch targets, button hints along the bottom, and full screen in Game Mode.
+Built for the Deck: five sections down the left (**Install · Stores · Stream · Add-ons · Installed**, switch with **L1/R1** or tap), full controller support (D-pad/stick to move, **A** select, **B** back, **X** browse, **☰** menu), big touch targets, button hints along the bottom, and full screen in Game Mode.
 
 ## What it does for you
 
@@ -28,9 +28,23 @@ Built for the Deck: four sections down the left (**Install · Stream · Add-ons 
 - **Shows real progress:** how much the installer has written so far and how fast, with an estimate against the installer's size for big installs, and a heads-up when nothing is happening because the installer is waiting for you. Flathub and EmuDeck downloads show a percentage.
 - **Keeps the Deck awake while installing** (when the system allows it), so a long install isn't paused by sleep.
 
+## Game stores
+
+The **Stores** section puts other game stores' apps in your Steam library. Sign in the first time you open one, then
+install and play its games from inside it:
+
+| Store | How |
+| :--- | :--- |
+| **Heroic Games Launcher** (Epic Games, GOG, Amazon), **itch**, **Prism Launcher** (Minecraft: Java Edition) | Linux apps: installed from Flathub the way Discover does it (so Discover keeps them updated), then added to Steam with their own logo and artwork. Heroic can add each game you install to Steam too. |
+| **Battle.net**, **EA app**, **Ubisoft Connect**, **Epic Games Launcher**, **Amazon Games**, **Rockstar Games Launcher** | Windows apps: Deckhand downloads the store's official installer from its own site and installs it like any setup file — its own Windows setup (prefix), a Steam shortcut, and listed under Installed programs. If the store opens by itself when the installer finishes, close it (or pick **Installer is done — continue**). The downloaded installer is deleted afterwards. |
+
+Uninstalling a Windows store also deletes the games installed inside it. Games whose anti-cheat blocks Linux won't
+run, whichever store they come from. GOG's offline installers don't need a store at all: install them from **Install**
+like any setup file.
+
 ## Game streaming
 
-Home → **Game streaming** (or ☰ Menu) adds streaming services to your Steam library, each with its own artwork:
+Home → **Game streaming** (or ☰ Menu) adds streaming services to your Steam library, each with its own logo and artwork:
 
 | Service | How it runs |
 | :--- | :--- |
@@ -42,24 +56,34 @@ for a sharper picture, stream stats, Xbox remote play and mouse & keyboard. Choo
 later by picking Xbox Cloud Gaming again. It runs in Chromium (Google Chrome no longer lets it be loaded this way), is
 installed without Tampermonkey, and updates itself in the background each time you start it.
 
-The page shows which browsers and apps are already on the Deck, and what each service uses. Whatever a service needs is installed from Flathub the way Discover does it (system-wide, no password needed on SteamOS), so it shows up in Discover and Discover keeps it up to date. Sign in the first time
-you open it; leave with STEAM → Exit game. Picking a service again offers to remove it (the browser or app stays).
+The page shows which browsers and apps are already on the Deck, and what each service uses. Whatever a service
+needs is installed from Flathub the way Discover does it (system-wide, no password needed on
+SteamOS), so it shows up in Discover and Discover keeps it up to date. Sign in the first time you
+open it; leave with STEAM → Exit game. In Desktop Mode they open as a normal maximized window instead, with a
+close button. Press STEAM + X there for the on-screen keyboard (Deckhand starts Steam in the background if it
+isn't running, since the keyboard is Steam's). Picking a service again offers to remove it (the browser or app
+stays).
 
 ## Add-ons
 
-The **Add-ons** section installs popular Deck add-ons from their official sources, using their own installers:
+The **Add-ons** section installs popular Deck add-ons and tools from their official sources. Each shows whether it's
+already installed:
 
 | Add-on | How |
 | :--- | :--- |
 | **Decky Loader** (decky.xyz) | Downloads Decky's own installer from github.com/SteamDeckHomebrew and opens it. It asks for your admin password (or offers a temporary one) and lets you install, update or uninstall. |
 | **EmuDeck** (emudeck.com) | Downloads the latest EmuDeck from its GitHub releases into `~/Applications`, the way EmuDeck's own installer does, and opens it. |
+| **GE-Proton** | Proton with extra fixes. Downloads the newest release from its GitHub releases, checks it against its checksum and puts it with Steam's compatibility tools. Deckhand uses it for new installs straight away; for a Steam game, restart Steam and pick it under ⚙ → Properties → Compatibility. Picking it again updates it. |
+| **RetroDECK**, **Lutris**, **Bottles**, **Discord** | From Flathub (kept up to date by Discover), and added to Steam so you can open them in Game Mode. |
+| **ProtonUp-Qt**, **Protontricks**, **Ludusavi**, **Flatseal** | Desktop Mode tools: from Flathub (kept up to date by Discover), then in the Desktop Mode app menu. |
 
-Both set themselves up in Desktop Mode; from Game Mode, Deckhand offers to switch. Each shows whether it's already
-installed.
+Decky Loader and EmuDeck set themselves up in Desktop Mode; from Game Mode, Deckhand offers to switch. An app from
+Flathub can be opened, added to or removed from Steam, or uninstalled by picking it again.
 
-**Already set up?** Deckhand recognises streaming services you added to Steam yourself (or with a guide or another tool), copies
-of Moonlight or chiaki-ng that aren't from Flathub (AppImages, commands), and NVIDIA's GeForce NOW app. It won't add a second
-shortcut unless you ask. When you pick a setup file, it also warns if your Steam library already has a program by that name.
+**Already set up?** Deckhand recognises streaming services and game stores you added to Steam yourself (or with a guide or
+another tool), store apps you installed from their setup files with Deckhand, copies of Moonlight, chiaki-ng or Heroic that
+aren't from Flathub (AppImages, commands), and NVIDIA's GeForce NOW app. It won't add a second shortcut unless you ask.
+When you pick a setup file, it also warns if your Steam library already has a program by that name.
 
 ## Install (Steam Deck)
 
@@ -86,15 +110,39 @@ Everything Deckhand keeps is in `~/.local/share/deckhand`.
 | :--- | :--- |
 | Installed programs (one prefix each) | `~/.local/share/deckhand/prefixes/<name>/pfx/drive_c` |
 | Launch scripts used by Steam | `~/.local/share/deckhand/launchers/` |
+| Downloads while they're used (store installers, runtimes) | `~/.local/share/deckhand/downloads/` |
+| Save backups (`<program>/<date>.zip`) | `~/.local/share/deckhand/save-backups/` |
 | Install logs, and each program's last launch (`<name>-launch.log`) | `~/.local/share/deckhand/logs/` |
 | Backup of your Steam shortcuts | `…/userdata/<id>/config/shortcuts.vdf.deckhand-bak` |
 
-**Uninstalling:** Home → **Installed programs** (or ☰ Menu → Installed programs). Each program shows its size and
-whether it's still in Steam. Uninstalling deletes its Windows folder (including saves kept inside it), its folder on
-D: if it was installed there, and its Steam shortcut, icon and artwork. While Steam is running (always, in Game Mode)
+**Installed programs** (Home → Installed programs, or the Installed section) shows each program's size and whether
+it's still in Steam. It lists everything Deckhand set up — programs, streaming services, game stores and add-ons —
+to remove them or add them back to Steam. Pick one to:
+
+- **Fix it:** if it won't start, or says a file is missing (MSVCP140.dll, d3dx9_43.dll, a .NET version…), install
+  what it needs into its own Windows setup: the Visual C++ runtimes, the .NET version it was built on (read from its
+  own files), or DirectX 9's extra files. Deckhand downloads Microsoft's installers and runs them silently with the
+  program's Proton; what happened goes to `logs/<name>-fix.log`.
+- **Back up saves** / **Restore saves:** games keep their saves in the Windows user's folders (Documents, Saved Games,
+  AppData), inside the program's Windows setup. A backup zips those (without caches) into `save-backups/`; the five
+  newest per program are kept. When you install a program again, the last screen offers its saves back.
+- **Uninstall:** deletes its Windows folder (including saves kept inside it, so it offers to back them up first), its
+  folder on D: if it was installed there, and its Steam shortcut, icon and artwork. While Steam is running (always, in Game Mode)
 Deckhand leaves Steam's list alone and tells you to remove the shortcut in Steam (⚙ → Manage → Remove non-Steam
 game). A program that isn't in Steam (you removed it, or Steam dropped it) shows "Not in Steam" and offers **Add to
 Steam** — or uninstall to free the space.
+
+**SteamGridDB art:** ☰ Menu → **SteamGridDB art** uses library art made by the community on
+[SteamGridDB](https://www.steamgriddb.com) instead of Deckhand's own, for everything Deckhand adds to Steam. It needs
+your free SteamGridDB API key (sign in there, then Preferences → API), entered once. Only a match that shares a word
+with the program's name is used, and what SteamGridDB doesn't have keeps Deckhand's art. Art you added yourself is
+never replaced.
+
+**Free up space:** ☰ Menu → **Free up space** finds what uninstalled Steam games left behind in every library: shader
+caches (safe to delete: Steam builds them again) and Windows setups (compatdata, which can hold the saves of games
+without Steam Cloud, so they're only deleted if you choose "Delete all of it"), plus Deckhand's leftover downloads. A
+game that any library lists counts as installed, including games on an SD card that isn't in right now; non-Steam
+shortcuts' folders are always kept.
 
 **Duplicate shortcuts:** ☰ Menu → **Remove duplicate Steam shortcuts** keeps one of each and removes the extra copies
 (of any non-Steam shortcut, not just Deckhand's). Steam must be closed for this: in Desktop Mode, exit Steam
@@ -123,6 +171,8 @@ The tests use a fake Proton and fake Steam install, so they run anywhere, includ
 
 **Shipping a new version:** bump `__version__` in `deckhand/__init__.py`, then run
 `scripts/publish_bin.sh "one line of release notes"` and commit `bin/`. That rebuilds the binary and writes
-`bin/deckhand.json`, which `get.sh` and the in-app updater read (from `main`, then the development branch). Pushing a
-`v*` tag also publishes a GitHub release; the updater checks releases too and takes whichever version is newest.
+`bin/deckhand.json`, which `get.sh` and the in-app updater read (from `main`, then the development branch). Once that
+reaches `main`, the Release workflow runs the tests and publishes GitHub release `v<version>` with the same binary and
+those notes (it can also be run from the Actions tab); the updater checks releases too and takes whichever version is
+newest.
 `DECKHAND_UPDATE_BASE=<url of a folder with deckhand.json>` points the updater elsewhere for testing.
