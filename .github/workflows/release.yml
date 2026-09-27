@@ -51,9 +51,19 @@ jobs:
       - name: Create checksums
         run: sha256sum deckhand-linux-x86_64 > deckhand-linux-x86_64.sha256
 
+      # The notes scripts/publish_bin.sh wrote for this version: the in-app updater shows them.
+      - name: Release notes
+        run: |
+          python - > notes.md <<'PY'
+          import json, os
+          info = json.load(open("bin/deckhand.json"))
+          print(info.get("notes", "") if info.get("version") == os.environ["GITHUB_REF_NAME"].lstrip("v") else "")
+          PY
+
       - name: Publish GitHub release assets
         uses: softprops/action-gh-release@v2
         with:
+          body_path: notes.md
           files: |
             deckhand-linux-x86_64
             deckhand-linux-x86_64.sha256
