@@ -111,7 +111,8 @@ Everything Deckhand keeps is in `~/.local/share/deckhand`.
 | Backup of your Steam shortcuts | `…/userdata/<id>/config/shortcuts.vdf.deckhand-bak` |
 
 **Installed programs** (Home → Installed programs, or the Installed section) shows each program's size and whether
-it's still in Steam. Pick one to:
+it's still in Steam. It lists everything Deckhand set up — programs, streaming services, game stores and add-ons —
+to remove them or add them back to Steam. Pick one to:
 
 - **Fix it:** if it won't start, or says a file is missing (MSVCP140.dll, d3dx9_43.dll, a .NET version…), install
   what it needs into its own Windows setup: the Visual C++ runtimes, the .NET version it was built on (read from its

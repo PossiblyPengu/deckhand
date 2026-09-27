@@ -65,9 +65,10 @@ SERVICES = (
             local=("chiaki-ng", "chiaki", "chiaki*.AppImage"), spot=r"chiaki", color="#1d4fa3"),
 )
 
-# Full screen at the Deck's resolution, sized for its 7" screen. Kiosk mode has no address bar;
-# leave with Steam's own "Exit game".
-BROWSER_ARGS = ("--kiosk", "--start-fullscreen", "--window-size=1280,800", "--force-device-scale-factor=1.25",
+# Full screen on the Deck's 1280×800 screen, the way Valve's and Microsoft's own Deck guides do it:
+# Chrome's window size is in device-independent pixels, so 1024×640 at 1.25 scale fills the screen
+# and is sized for 7". Kiosk mode has no address bar; leave with Steam's own "Exit game".
+BROWSER_ARGS = ("--kiosk", "--window-size=1024,640", "--force-device-scale-factor=1.25",
                 "--device-scale-factor=1.25", "--no-first-run", "--no-default-browser-check")
 
 

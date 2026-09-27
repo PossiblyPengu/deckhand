@@ -48,6 +48,8 @@ class TestStreaming(FlatpakEnv):
         self.assertIn("override --user --filesystem=/run/udev:ro com.google.Chrome", calls)
         script = Path(app.launcher).read_text()
         self.assertIn("flatpak run com.google.Chrome --kiosk", script)
+        self.assertIn("--window-size=1024,640", script)
+        self.assertIn("--force-device-scale-factor=1.25", script)
         self.assertIn("https://www.xbox.com/play", script)
         self.assertEqual((app.kind, app.id, app.steam_added), ("stream", "stream-xbox-cloud", "file"))
         self.assertTrue(core.in_steam(app, [self.steam]))

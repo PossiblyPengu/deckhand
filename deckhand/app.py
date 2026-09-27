@@ -358,7 +358,7 @@ class HomePage(Page):
         else:
             self.note.setText("")
         self.note.setVisible(bool(self.note.text()))
-        count = sum(a.kind == "program" for a in self.win.library.load())
+        count = len(self.win.library.load())
         unfinished = len(core.orphan_prefixes(self.win.paths))
         text = f"Installed programs ({count})  ·  uninstall"
         if unfinished:
@@ -821,6 +821,7 @@ def close_steam_first(then: str = "☰ Menu → Installed programs → Add to St
 
 REMOVE_IN_STEAM = "In Steam, open it and choose ⚙ → Manage → Remove non-Steam game from your library."
 STEAM_STATE = {"in": "In Steam", "sent": "Sent to Steam", "out": "Not in Steam"}
+KIND_LABEL = {"stream": "Streaming service", "store": "Game store", "addon": "Add-on"}
 
 
 def count_names(names: list[str], limit: int = 8) -> str:
@@ -846,6 +847,7 @@ class InstalledPage(Page):
         lay.setSpacing(12)
         lay.addWidget(label("Installed programs", "h1"))
         lay.addWidget(label("Pick a program to fix it, back up its saves, uninstall it or add it back to Steam. "
+                            "Streaming services, game stores and add-ons you added are here too. "
                             "You play them from your Steam library.", "dim"))
         self.list = QListWidget()
         self.list.setIconSize(QSize(44, 44))
@@ -866,8 +868,8 @@ class InstalledPage(Page):
         self.thread: SizesThread | None = None
 
     def refresh(self) -> None:
-        apps = sorted((a for a in self.win.library.load() if a.kind == "program"), key=lambda a: a.installed_at,
-                      reverse=True)  # (streaming services have their own page)
+        apps = sorted(self.win.library.load(), key=lambda a: a.installed_at,
+                      reverse=True)  # streaming services, stores and add-ons are listed too
         self.apps = {a.id: a for a in apps}
         roots, running = core.steam_roots(), core.steam_is_running()
         entries = core.steam_shortcuts(roots)  # read Steam's list once per refresh
@@ -894,7 +896,7 @@ class InstalledPage(Page):
             self.list.setCurrentRow(0)
         if self.thread is not None:
             self.thread.requestInterruption()  # it clears self.thread when it's done; never touch a dead one
-        t = SizesThread([(a.id, core.app_paths(a)) for a in apps if a.id not in self.sizes]
+        t = SizesThread([(a.id, core.app_paths(a)) for a in apps if a.kind == "program" and a.id not in self.sizes]
                         + [(k, [d]) for k, d in self.leftovers.items() if k not in self.sizes])
         t.size.connect(self._on_size)
         t.finished.connect(lambda t=t: self._size_thread_done(t))
@@ -907,8 +909,10 @@ class InstalledPage(Page):
         t.deleteLater()
 
     def _text(self, app: core.App) -> str:
-        size = core.human_size(self.sizes[app.id]) if app.id in self.sizes else "…"
         where = STEAM_STATE[self.steam.get(app.id, "out")]
+        if app.kind != "program":
+            return f"{app.name}\n{KIND_LABEL[app.kind]}  ·  Added {ago(app.installed_at)}  ·  {where}"
+        size = core.human_size(self.sizes[app.id]) if app.id in self.sizes else "…"
         return f"{app.name}\nInstalled {ago(app.installed_at)}  ·  {size}  ·  {where}"
 
     def _leftover_text(self, key: str) -> str:
@@ -949,11 +953,14 @@ class InstalledPage(Page):
             text = "This program isn't in your Steam library."
             actions.append(("Add to Steam", lambda: self.win.add_to_steam(app)))
         uninstall = len(actions)
-        actions += [("Uninstall", lambda: self.win.uninstall(app, self.sizes.get(app.id))),
-                    ("Fix it: install what it's missing", lambda: self._fix(app)),
-                    ("Back up saves", lambda: self.win.back_up_saves(app))]
-        if saves.backups(self.win.paths, app.name):
-            actions.append(("Restore saves", lambda: self.win.restore_saves(app)))
+        if app.kind == "program":
+            actions += [("Uninstall", lambda: self.win.uninstall(app, self.sizes.get(app.id))),
+                        ("Fix it: install what it's missing", lambda: self._fix(app)),
+                        ("Back up saves", lambda: self.win.back_up_saves(app))]
+            if saves.backups(self.win.paths, app.name):
+                actions.append(("Restore saves", lambda: self.win.restore_saves(app)))
+        else:
+            actions.append(("Remove", lambda: self.win.uninstall(app)))
         actions.append(("Close", None))
         choice = Sheet.ask(self, app.name, text, tuple(t for t, _f in actions), primary=len(actions) - 1,
                            danger=(uninstall,))
@@ -2443,12 +2450,42 @@ class MainWindow(QMainWindow):
     def refresh_launchers(self) -> None:
         """Rewrite launch scripts so programs installed by older versions get current fixes."""
         roots = core.steam_roots()
-        for app in self.library.load():
+        apps = self.library.load()
+        for app in apps:
             if app.kind == "program" and app.launcher and app.prefix and Path(app.prefix).is_dir():
                 try:
                     core.write_launcher(app, self.paths, roots[0] if roots else None, roots)
                 except OSError:
                     pass
+        if not any(a.kind in ("stream", "store", "addon") for a in apps):
+            return
+
+        def rewrite(installed: set[str]) -> None:
+            for app in apps:
+                if app.kind == "stream":
+                    svc = streaming.service(app.id.split("-", 1)[1])
+                elif app.kind == "store":
+                    s = stores.store(app.id.split("-", 1)[1])
+                    svc = s.service if s and not s.is_windows else None
+                elif app.kind == "addon":
+                    a = addons.addon(app.id.split("-", 1)[1])
+                    svc = a.service if a and a.app else None
+                else:
+                    continue
+                if svc is None:
+                    continue
+                have = streaming.detect(installed, (svc,))
+                bx = streaming.BETTER_XCLOUD in app.options
+                # Only rewrite when what it runs in is confirmed present: never downgrade a working
+                # Edge/Chromium launcher to Chrome because flatpak list failed or came back empty.
+                if streaming.needs(svc, have, bx) is not None:
+                    continue
+                try:
+                    streaming.write_launcher(svc, self.paths, have, bx, app.kind)
+                except OSError:
+                    pass
+
+        self.run_worker(lambda _s: streaming.installed_apps(), rewrite, lambda _m: None, kind="launchers")
 
     # ── menu ─────────────────────────────────────────────────────────────
 
@@ -2498,7 +2535,7 @@ class MainWindow(QMainWindow):
 
             def removed(left_in_steam: bool) -> None:
                 self.flash(f"{app.name} removed")
-                if self.stack.currentWidget() in (self.streaming, self.stores, self.addons):
+                if self.stack.currentWidget() in (self.streaming, self.stores, self.addons, self.installed):
                     self.stack.currentWidget().refresh()
                 if left_in_steam:
                     Sheet.ask(self, f"{app.name} removed", "Its shortcut is still in your Steam library: "

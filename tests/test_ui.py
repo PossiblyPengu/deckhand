@@ -455,12 +455,48 @@ class TestWindow(Env):
         app = core.Library(self.paths).load()[0]
         self.assertTrue(app.artwork)
         self.win.go_home()
-        self.assertFalse(self.win.home.manage_btn.isVisible())  # streams aren't "installed programs"
-        self.win.show_streaming()
-        self.answers = [1, 0]  # Remove it (after "Turn Better xCloud on"); Remove (confirm)
-        page._activate(page.list.item(0))
+        self.assertTrue(self.win.home.manage_btn.isVisible())
+        self.win.show_installed()
+        self.assertEqual(self.win.installed.list.count(), 1)
+        item = self.win.installed.list.item(0).text()
+        self.assertIn("Xbox Cloud Gaming", item)
+        self.assertIn("Streaming service", item)
+        self.assertIn("In Steam", item)
+        self.answers = [0, 0]  # Remove; Remove (confirm)
+        self.win.installed._activate(self.win.installed.list.item(0))
         self.wait_for(lambda: core.Library(self.paths).load() == [])
+        self.wait_for(lambda: self.win.installed.list.count() == 0)
+        self.assertTrue(self.win.installed.empty.isVisible())
         self.assertEqual(core.steam_shortcuts([self.steam]), [])
+
+    def test_old_streaming_launchers_are_rewritten_on_start(self):
+        from tests.test_streaming import FAKE_FLATPAK
+        bindir = self.tmp / "flatpak-bin"
+        bindir.mkdir()
+        (bindir / "flatpak").write_text(FAKE_FLATPAK)
+        (bindir / "flatpak").chmod(0o755)
+        db = self.tmp / "fp.db"
+        db.write_text("com.google.Chrome\n")
+        os.environ.update(PATH=f"{bindir}:{os.environ['PATH']}", FAKE_FLATPAK_LOG=str(self.tmp / "fp.log"),
+                          FAKE_FLATPAK_DB=str(db))
+        self.paths.launchers.mkdir(parents=True, exist_ok=True)
+        launcher = self.paths.launchers / "stream-xbox-cloud.sh"
+        old_args = ("exec flatpak run com.google.Chrome --kiosk --start-fullscreen --window-size=1280,800"
+                    " --force-device-scale-factor=1.25 https://www.xbox.com/play")
+        launcher.write_text(f"#!/bin/bash\n{old_args}\n")
+        app = core.App(id="stream-xbox-cloud", name="Xbox Cloud Gaming", kind="stream", exe=str(launcher),
+                       launcher=str(launcher), prefix="", runtime_name="", runtime_kind="", runtime_path="")
+        core.Library(self.paths).upsert(app)
+        self.win.refresh_launchers()
+        self.wait_for(lambda: "1024,640" in launcher.read_text())
+        self.assertIn("--window-size=1024,640", launcher.read_text())
+        self.assertNotIn("1280,800", launcher.read_text())
+        # flatpak listing nothing must not downgrade a working launcher to Chrome.
+        db.write_text("")
+        launcher.write_text(f"#!/bin/bash\n{old_args}\n")
+        self.win.refresh_launchers()
+        self.wait_for(lambda: not self.win.workers)
+        self.assertIn("1280,800", launcher.read_text())
 
     def test_xbox_dialog_says_which_browser_each_choice_installs(self):
         from tests.test_streaming import FAKE_FLATPAK
@@ -673,7 +709,7 @@ class TestWindow(Env):
         self.assertEqual(app.kind, "store")
         self.assertTrue(app.artwork)
         self.win.go_home()
-        self.assertFalse(self.win.home.manage_btn.isVisible())  # a store's Linux app isn't an "installed program"
+        self.assertTrue(self.win.home.manage_btn.isVisible())
         self.win.show_stores()
         self.answers = [0, 0]  # Remove it; Remove (confirm)
         page._activate(page.list.item(0))

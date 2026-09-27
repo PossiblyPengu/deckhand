@@ -1,5 +1,5 @@
 {
-  "version": "4.2.0",
-  "sha256": "2d1b8e75af731169798e6e9221b185e82e40e9525092a129c0ee335ef11f24f2",
-  "notes": "Game stores (Heroic, Battle.net, EA, Ubisoft, Epic, Amazon, Rockstar, itch, Minecraft) with real logos; GE-Proton and more add-ons; Fix it for programs that won't start; save backups; SteamGridDB art; Free up space."
+  "version": "4.2.1",
+  "sha256": "fc6239129754ec718623ebba1209a83c1c49cf9e7d92124831056042cb3364b4",
+  "notes": "Installed now lists everything Deckhand set up \u2014 streaming services, game stores and add-ons too; streaming services fill the Deck's screen properly."
 }
