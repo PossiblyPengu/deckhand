@@ -35,7 +35,7 @@ install and play its games from inside it:
 
 | Store | How |
 | :--- | :--- |
-| **Heroic Games Launcher** (Epic Games, GOG, Amazon), **itch**, **Prism Launcher** (Minecraft: Java Edition) | Linux apps: installed from Flathub for your user only (no admin password), then added to Steam with their own logo and artwork. Heroic can add each game you install to Steam too. |
+| **Heroic Games Launcher** (Epic Games, GOG, Amazon), **itch**, **Prism Launcher** (Minecraft: Java Edition) | Linux apps: installed from Flathub the way Discover does it (so Discover keeps them updated), then added to Steam with their own logo and artwork. Heroic can add each game you install to Steam too. |
 | **Battle.net**, **EA app**, **Ubisoft Connect**, **Epic Games Launcher**, **Amazon Games**, **Rockstar Games Launcher** | Windows apps: Deckhand downloads the store's official installer from its own site and installs it like any setup file — its own Windows setup (prefix), a Steam shortcut, and listed under Installed programs. If the store opens by itself when the installer finishes, close it (or pick **Installer is done — continue**). The downloaded installer is deleted afterwards. |
 
 Uninstalling a Windows store also deletes the games installed inside it. Games whose anti-cheat blocks Linux won't
@@ -57,7 +57,8 @@ later by picking Xbox Cloud Gaming again. It runs in Chromium (Google Chrome no 
 installed without Tampermonkey, and updates itself in the background each time you start it.
 
 The page shows which browsers and apps are already on the Deck, and what each service uses. Whatever a service
-needs is installed from Flathub for your user only, so no admin password is needed. Sign in the first time you
+needs is installed from Flathub the way Discover does it (system-wide, no password needed on
+SteamOS), so it shows up in Discover and Discover keeps it up to date. Sign in the first time you
 open it; leave with STEAM → Exit game. In Desktop Mode they open as a normal maximized window instead, with a
 close button. Press STEAM + X there for the on-screen keyboard (Deckhand starts Steam in the background if it
 isn't running, since the keyboard is Steam's). Picking a service again offers to remove it (the browser or app
@@ -73,8 +74,8 @@ already installed:
 | **Decky Loader** (decky.xyz) | Downloads Decky's own installer from github.com/SteamDeckHomebrew and opens it. It asks for your admin password (or offers a temporary one) and lets you install, update or uninstall. |
 | **EmuDeck** (emudeck.com) | Downloads the latest EmuDeck from its GitHub releases into `~/Applications`, the way EmuDeck's own installer does, and opens it. |
 | **GE-Proton** | Proton with extra fixes. Downloads the newest release from its GitHub releases, checks it against its checksum and puts it with Steam's compatibility tools. Deckhand uses it for new installs straight away; for a Steam game, restart Steam and pick it under ⚙ → Properties → Compatibility. Picking it again updates it. |
-| **RetroDECK**, **Lutris**, **Bottles**, **Discord** | From Flathub, for your user only, and added to Steam so you can open them in Game Mode. |
-| **ProtonUp-Qt**, **Protontricks**, **Ludusavi**, **Flatseal** | Desktop Mode tools: from Flathub, for your user only, then in the Desktop Mode app menu. |
+| **RetroDECK**, **Lutris**, **Bottles**, **Discord** | From Flathub (kept up to date by Discover), and added to Steam so you can open them in Game Mode. |
+| **ProtonUp-Qt**, **Protontricks**, **Ludusavi**, **Flatseal** | Desktop Mode tools: from Flathub (kept up to date by Discover), then in the Desktop Mode app menu. |
 
 Decky Loader and EmuDeck set themselves up in Desktop Mode; from Game Mode, Deckhand offers to switch. An app from
 Flathub can be opened, added to or removed from Steam, or uninstalled by picking it again.

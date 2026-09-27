@@ -2,7 +2,7 @@
 
 Cloud services (Xbox Cloud Gaming, GeForce NOW, …) run full screen in a browser in Game Mode or in a closable
 app window in Desktop Mode; home streaming (Moonlight, chiaki-ng) uses its own app. Either way the app comes
-from Flathub, installed for this user only (no password needed), and the service ends up in Steam like an
+from Flathub, installed the way Discover does it (so Discover keeps it updated), and the service ends up in Steam like an
 App with kind "stream", a launcher script, artwork, and Steam's own add-a-game hand-off.
 """
 from __future__ import annotations
@@ -231,19 +231,9 @@ class FlatpakProgress:
         return min(100, int(((self.step - 1) + part / 100) * 100 / self.steps))
 
 
-def install_app(app_id: str, log: Callable[[str], None] = lambda s: None,
-                progress: Callable[[int], None] = lambda pct: None) -> None:
-    """Install a Flathub app for this user (no admin password), adding Flathub for the user if needed."""
-    exe = _flatpak()
-    if not exe:
-        raise core.InstallError("Flatpak isn't available on this system, so Deckhand can't install "
-                                f"{app_id}.")
-    env = core.clean_env()
-    subprocess.run([exe, "remote-add", "--user", "--if-not-exists", "flathub", FLATHUB], env=env,
-                   capture_output=True, timeout=120)
-    proc = subprocess.Popen([exe, "install", "--user", "-y", "--noninteractive", "flathub", app_id], env=env,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True,
-                            errors="replace")
+def _run_flatpak(cmd: list[str], log: Callable[[str], None], progress: Callable[[int], None]) -> tuple[int, list[str]]:
+    proc = subprocess.Popen(cmd, env=core.clean_env(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            stdin=subprocess.DEVNULL, text=True, errors="replace")
     tail: list[str] = []
     meter = FlatpakProgress()
     assert proc.stdout is not None
@@ -259,21 +249,68 @@ def install_app(app_id: str, log: Callable[[str], None] = lambda s: None,
                 else:
                     tail = (tail + [line])[-8:]
                     log(line)
-    if proc.wait() != 0:
-        raise core.InstallError(f"Couldn't install {app_id} from Flathub (is the Deck online?).\n\n"
-                                + "\n".join(tail))
+    return proc.wait(), tail
+
+
+def system_flathub() -> bool:
+    """Is Flathub set up system-wide (as on SteamOS, where Discover installs from it)?"""
+    exe = _flatpak()
+    if not exe:
+        return False
+    try:
+        out = subprocess.run([exe, "remotes", "--system", "--columns=name"], capture_output=True, text=True,
+                             timeout=30, env=core.clean_env()).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return "flathub" in out.split()
+
+
+def install_app(app_id: str, log: Callable[[str], None] = lambda s: None,
+                progress: Callable[[int], None] = lambda pct: None) -> str:
+    """Install a Flathub app the way Discover does: system-wide, from the system's Flathub, so it shows
+    up in Discover and Discover keeps it updated. (SteamOS lets the deck user do that without a
+    password: Flatpak's own rule for the wheel group.) Where that isn't allowed, it's installed for
+    this user instead, which Discover also lists and updates. Returns "system" or "user"."""
+    exe = _flatpak()
+    if not exe:
+        raise core.InstallError("Flatpak isn't available on this system, so Deckhand can't install "
+                                f"{app_id}.")
+    tail: list[str] = []
+    if system_flathub():
+        rc, tail = _run_flatpak([exe, "install", "--system", "-y", "--noninteractive", "flathub", app_id], log,
+                                progress)
+        if rc == 0:
+            return "system"
+        log("Installing for the whole Deck wasn't allowed; installing for this user instead.")
+    subprocess.run([exe, "remote-add", "--user", "--if-not-exists", "flathub", FLATHUB], env=core.clean_env(),
+                   capture_output=True, timeout=120)
+    rc, user_tail = _run_flatpak([exe, "install", "--user", "-y", "--noninteractive", "flathub", app_id], log,
+                                 progress)
+    if rc == 0:
+        return "user"
+    raise core.InstallError(f"Couldn't install {app_id} from Flathub (is the Deck online?).\n\n"
+                            + "\n".join(user_tail or tail))
 
 
 def uninstall_app(app_id: str) -> None:
-    """Uninstall a Flatpak app installed for this user (what install_app installed)."""
+    """Uninstall a Flatpak app from wherever install_app put it: system-wide (like Discover), or for
+    this user."""
     exe = _flatpak()
     if not exe:
         raise core.InstallError("Flatpak isn't available on this system.")
-    proc = subprocess.run([exe, "uninstall", "--user", "-y", "--noninteractive", app_id], env=core.clean_env(),
-                          capture_output=True, text=True, errors="replace", timeout=300)
-    if proc.returncode != 0:
-        raise core.InstallError(f"Couldn't uninstall {app_name(app_id)}. If it was installed for all users, "
-                                f"remove it in Discover (Desktop Mode).\n\n{(proc.stdout + proc.stderr).strip()[-800:]}")
+    env, errors, found = core.clean_env(), [], False
+    for scope in ("--system", "--user"):
+        info = subprocess.run([exe, "info", scope, app_id], env=env, capture_output=True, timeout=60)
+        if info.returncode != 0:
+            continue  # not installed there
+        found = True
+        proc = subprocess.run([exe, "uninstall", scope, "-y", "--noninteractive", app_id], env=env,
+                              capture_output=True, text=True, errors="replace", timeout=300)
+        if proc.returncode != 0:
+            errors.append((proc.stdout + proc.stderr).strip()[-800:])
+    if errors or not found:
+        raise core.InstallError(f"Couldn't uninstall {app_name(app_id)}. Remove it in Discover (Desktop Mode) "
+                                "instead.\n\n" + "\n".join(errors))
 
 
 def open_app(app_id: str) -> None:

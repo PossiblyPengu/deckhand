@@ -83,7 +83,7 @@ class TestFlathubAddons(FlatpakEnv):
         discord = addons.addon("discord")
         self.assertEqual(addons.status(discord, installed=set()), "Not installed")
         app = streaming.set_up(discord.service, self.paths, roots=[self.steam], kind="addon")
-        self.assertIn("install --user -y --noninteractive flathub com.discordapp.Discord", self.calls())
+        self.assertIn("install --system -y --noninteractive flathub com.discordapp.Discord", self.calls())
         self.assertEqual((app.kind, app.id), ("addon", "addon-discord"))
         self.assertIn("exec flatpak run com.discordapp.Discord", Path(app.launcher).read_text())
         self.assertEqual(Path(app.icon).name, "addon-discord.png")
@@ -92,7 +92,7 @@ class TestFlathubAddons(FlatpakEnv):
         # Uninstalling: the shortcut goes, then the app.
         self.assertFalse(core.uninstall(app, self.paths, roots=[self.steam]))
         streaming.uninstall_app(discord.app)
-        self.assertIn("uninstall --user -y --noninteractive com.discordapp.Discord", self.calls())
+        self.assertIn("uninstall --system -y --noninteractive com.discordapp.Discord", self.calls())
         self.assertNotIn(discord.app, streaming.installed_apps())
         self.assertEqual(core.steam_shortcuts([self.steam]), [])
 

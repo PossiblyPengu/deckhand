@@ -1,5 +1,5 @@
 {
-  "version": "4.2.2",
-  "sha256": "62eb7599192c3cbc51287a0e1e4052a23c2793a564e6847bc1dbc2d10ccfc151",
-  "notes": "Streaming services can be closed in Desktop Mode, where they open as a normal window and STEAM + X brings up the keyboard; Installed lists everything Deckhand set up; streaming fills the Deck's screen."
+  "version": "4.2.3",
+  "sha256": "43e38acf3164c773891d0479970eb88f9fe7171d5240c467facdc0dd8ea747e9",
+  "notes": "Apps from Flathub are now installed the way Discover does it, so Discover keeps them up to date. Uninstalling a program also removes its folder on D: when that folder existed before the install, and the DirectX log is no longer shown twice."
 }

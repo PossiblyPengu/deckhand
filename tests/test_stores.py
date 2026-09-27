@@ -32,7 +32,7 @@ class TestStores(FlatpakEnv):
     def test_heroic_comes_from_flathub_and_lands_in_steam_once(self):
         heroic = stores.store("heroic")
         app = stores.set_up(heroic, self.paths, roots=[self.steam])
-        self.assertIn("install --user -y --noninteractive flathub com.heroicgameslauncher.hgl", self.calls())
+        self.assertIn("install --system -y --noninteractive flathub com.heroicgameslauncher.hgl", self.calls())
         self.assertIn("exec flatpak run com.heroicgameslauncher.hgl", Path(app.launcher).read_text())
         self.assertEqual((app.kind, app.id, app.name), ("store", "store-heroic", "Heroic Games Launcher"))
         self.assertEqual(Path(app.launcher).name, "store-heroic.sh")

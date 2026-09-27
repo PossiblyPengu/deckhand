@@ -1182,8 +1182,9 @@ class StreamingPage(Page):
         lay.setContentsMargins(*PAGE_MARGINS)
         lay.setSpacing(12)
         lay.addWidget(label("Game streaming", "h1"))
-        lay.addWidget(label("Pick a service to add it to Steam. Deckhand installs what it needs and sets up the "
-                            "controller. Sign in the first time you open it; leave with STEAM → Exit game.", "dim"))
+        lay.addWidget(label("Pick a service to add it to Steam. Apps it needs come from Flathub, just like in "
+                            "Discover, so Discover keeps them up to date. Sign in the first time you open it; leave "
+                            "with STEAM → Exit game.", "dim"))
         self.on_deck = label("Checking what's installed…", "muted")
         lay.addWidget(self.on_deck)
         self.list = QListWidget()
@@ -1287,7 +1288,8 @@ class StreamingPage(Page):
                 return
         need = streaming.needs(svc, installed)
         if need:
-            what = f"Deckhand installs {streaming.app_name(need)} from Flathub first (it isn't on this Deck yet). "
+            what = (f"Deckhand installs {streaming.app_name(need)} from Flathub first, the same as Discover would, "
+                    "so Discover keeps it up to date. ")
         elif svc.is_web:
             what = f"It opens in {streaming.app_name(streaming.uses(svc, installed))}, which is already installed. "
         else:
@@ -1346,7 +1348,7 @@ class AddonsPage(Page):
         lay.setSpacing(12)
         lay.addWidget(label("Add-ons", "h1"))
         lay.addWidget(label("Popular Deck add-ons and tools, from their official sources. Decky Loader and EmuDeck set "
-                            "themselves up in Desktop Mode; the apps from Flathub are installed for your user only.",
+                            "themselves up in Desktop Mode; apps from Flathub are installed the way Discover does it, so Discover keeps them up to date.",
                             "dim"))
         self.list = QListWidget()
         self.list.setIconSize(QSize(44, 44))
@@ -1420,8 +1422,8 @@ class AddonsPage(Page):
         if a.app not in self.installed:
             then = ("Then it's in your Steam library too, so you can open it in Game Mode." if a.steam else
                     "Then it's in the Desktop Mode app menu.")
-            if Sheet.ask(self, f"Install {a.name}?", f"Deckhand installs {a.name} from Flathub, for your user only "
-                         f"(no admin password needed). {then}", ("Install", "Cancel")) == 0:
+            if Sheet.ask(self, f"Install {a.name}?", f"Deckhand installs {a.name} from Flathub, the way Discover does "
+                         f"it, so Discover keeps it up to date. {then}", ("Install", "Cancel")) == 0:
                 self._set_up(a, a.steam)
             return
         app = self.apps.get(a.id)
@@ -2455,6 +2457,10 @@ class MainWindow(QMainWindow):
         roots = core.steam_roots()
         apps = self.library.load()
         for app in apps:
+            folder = core.guess_program_dir(app)
+            if folder is not None:  # recorded without its folder on D: (see guess_program_dir)
+                app.extra_dirs = [str(folder)]
+                self.library.upsert(app)
             if app.kind == "program" and app.launcher and app.prefix and Path(app.prefix).is_dir():
                 try:
                     core.write_launcher(app, self.paths, roots[0] if roots else None, roots)

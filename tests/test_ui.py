@@ -525,7 +525,7 @@ class TestWindow(Env):
                           texts[-1])
             self.wait_for(lambda: "Better xCloud on (Chromium)" in page.list.item(0).text())
             installs = [c for c in log.read_text().splitlines() if c.startswith("install")]
-            self.assertEqual(installs, ["install --user -y --noninteractive flathub org.chromium.Chromium"])
+            self.assertEqual(installs, ["install --system -y --noninteractive flathub org.chromium.Chromium"])
         finally:
             streaming.install_better_xcloud = orig
 
