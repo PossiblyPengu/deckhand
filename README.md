@@ -35,7 +35,7 @@ install and play its games from inside it:
 
 | Store | How |
 | :--- | :--- |
-| **Heroic Games Launcher** (Epic Games, GOG, Amazon), **itch** | Linux apps: installed from Flathub for your user only (no admin password), then added to Steam with their own logo and artwork. Heroic can add each game you install to Steam too. |
+| **Heroic Games Launcher** (Epic Games, GOG, Amazon), **itch**, **Prism Launcher** (Minecraft: Java Edition) | Linux apps: installed from Flathub for your user only (no admin password), then added to Steam with their own logo and artwork. Heroic can add each game you install to Steam too. |
 | **Battle.net**, **EA app**, **Ubisoft Connect**, **Epic Games Launcher**, **Amazon Games**, **Rockstar Games Launcher** | Windows apps: Deckhand downloads the store's official installer from its own site and installs it like any setup file — its own Windows setup (prefix), a Steam shortcut, and listed under Installed programs. If the store opens by itself when the installer finishes, close it (or pick **Installer is done — continue**). The downloaded installer is deleted afterwards. |
 
 Uninstalling a Windows store also deletes the games installed inside it. Games whose anti-cheat blocks Linux won't
@@ -61,15 +61,19 @@ you open it; leave with STEAM → Exit game. Picking a service again offers to r
 
 ## Add-ons
 
-The **Add-ons** section installs popular Deck add-ons from their official sources, using their own installers:
+The **Add-ons** section installs popular Deck add-ons and tools from their official sources. Each shows whether it's
+already installed:
 
 | Add-on | How |
 | :--- | :--- |
 | **Decky Loader** (decky.xyz) | Downloads Decky's own installer from github.com/SteamDeckHomebrew and opens it. It asks for your admin password (or offers a temporary one) and lets you install, update or uninstall. |
 | **EmuDeck** (emudeck.com) | Downloads the latest EmuDeck from its GitHub releases into `~/Applications`, the way EmuDeck's own installer does, and opens it. |
+| **GE-Proton** | Proton with extra fixes. Downloads the newest release from its GitHub releases, checks it against its checksum and puts it with Steam's compatibility tools. Deckhand uses it for new installs straight away; for a Steam game, restart Steam and pick it under ⚙ → Properties → Compatibility. Picking it again updates it. |
+| **RetroDECK**, **Lutris**, **Bottles**, **Discord** | From Flathub, for your user only, and added to Steam so you can open them in Game Mode. |
+| **ProtonUp-Qt**, **Protontricks**, **Ludusavi**, **Flatseal** | Desktop Mode tools: from Flathub, for your user only, then in the Desktop Mode app menu. |
 
-Both set themselves up in Desktop Mode; from Game Mode, Deckhand offers to switch. Each shows whether it's already
-installed.
+Decky Loader and EmuDeck set themselves up in Desktop Mode; from Game Mode, Deckhand offers to switch. An app from
+Flathub can be opened, added to or removed from Steam, or uninstalled by picking it again.
 
 **Already set up?** Deckhand recognises streaming services and game stores you added to Steam yourself (or with a guide or
 another tool), store apps you installed from their setup files with Deckhand, copies of Moonlight, chiaki-ng or Heroic that
@@ -101,16 +105,38 @@ Everything Deckhand keeps is in `~/.local/share/deckhand`.
 | :--- | :--- |
 | Installed programs (one prefix each) | `~/.local/share/deckhand/prefixes/<name>/pfx/drive_c` |
 | Launch scripts used by Steam | `~/.local/share/deckhand/launchers/` |
-| Store installers while they install | `~/.local/share/deckhand/downloads/` |
+| Downloads while they're used (store installers, runtimes) | `~/.local/share/deckhand/downloads/` |
+| Save backups (`<program>/<date>.zip`) | `~/.local/share/deckhand/save-backups/` |
 | Install logs, and each program's last launch (`<name>-launch.log`) | `~/.local/share/deckhand/logs/` |
 | Backup of your Steam shortcuts | `…/userdata/<id>/config/shortcuts.vdf.deckhand-bak` |
 
-**Uninstalling:** Home → **Installed programs** (or ☰ Menu → Installed programs). Each program shows its size and
-whether it's still in Steam. Uninstalling deletes its Windows folder (including saves kept inside it), its folder on
-D: if it was installed there, and its Steam shortcut, icon and artwork. While Steam is running (always, in Game Mode)
+**Installed programs** (Home → Installed programs, or the Installed section) shows each program's size and whether
+it's still in Steam. Pick one to:
+
+- **Fix it:** if it won't start, or says a file is missing (MSVCP140.dll, d3dx9_43.dll, a .NET version…), install
+  what it needs into its own Windows setup: the Visual C++ runtimes, the .NET version it was built on (read from its
+  own files), or DirectX 9's extra files. Deckhand downloads Microsoft's installers and runs them silently with the
+  program's Proton; what happened goes to `logs/<name>-fix.log`.
+- **Back up saves** / **Restore saves:** games keep their saves in the Windows user's folders (Documents, Saved Games,
+  AppData), inside the program's Windows setup. A backup zips those (without caches) into `save-backups/`; the five
+  newest per program are kept. When you install a program again, the last screen offers its saves back.
+- **Uninstall:** deletes its Windows folder (including saves kept inside it, so it offers to back them up first), its
+  folder on D: if it was installed there, and its Steam shortcut, icon and artwork. While Steam is running (always, in Game Mode)
 Deckhand leaves Steam's list alone and tells you to remove the shortcut in Steam (⚙ → Manage → Remove non-Steam
 game). A program that isn't in Steam (you removed it, or Steam dropped it) shows "Not in Steam" and offers **Add to
 Steam** — or uninstall to free the space.
+
+**SteamGridDB art:** ☰ Menu → **SteamGridDB art** uses library art made by the community on
+[SteamGridDB](https://www.steamgriddb.com) instead of Deckhand's own, for everything Deckhand adds to Steam. It needs
+your free SteamGridDB API key (sign in there, then Preferences → API), entered once. Only a match that shares a word
+with the program's name is used, and what SteamGridDB doesn't have keeps Deckhand's art. Art you added yourself is
+never replaced.
+
+**Free up space:** ☰ Menu → **Free up space** finds what uninstalled Steam games left behind in every library: shader
+caches (safe to delete: Steam builds them again) and Windows setups (compatdata, which can hold the saves of games
+without Steam Cloud, so they're only deleted if you choose "Delete all of it"), plus Deckhand's leftover downloads. A
+game that any library lists counts as installed, including games on an SD card that isn't in right now; non-Steam
+shortcuts' folders are always kept.
 
 **Duplicate shortcuts:** ☰ Menu → **Remove duplicate Steam shortcuts** keeps one of each and removes the extra copies
 (of any non-Steam shortcut, not just Deckhand's). Steam must be closed for this: in Desktop Mode, exit Steam

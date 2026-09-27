@@ -13,6 +13,7 @@ import os
 import time
 import zipfile
 from pathlib import Path, PurePosixPath
+from typing import Iterator
 
 from . import core
 
@@ -34,35 +35,39 @@ def user_dir(pfx: Path) -> Path | None:
     return next((d for d in found if d.name == "steamuser"), found[0] if found else None)
 
 
-def _walk(top: Path, name: str) -> list[tuple[Path, str]]:
+def _walk(top: Path, name: str) -> Iterator[tuple[Path, str]]:
     """Files under a folder (never following links out of the prefix), minus caches."""
     if not top.is_dir() or top.is_symlink():
-        return []
-    out = []
+        return
     for dirpath, dirnames, files in os.walk(top):
         dirnames[:] = [d for d in dirnames if d.lower() not in SKIP and not os.path.islink(os.path.join(dirpath, d))]
         rel = PurePosixPath(name, Path(dirpath).relative_to(top).as_posix())
         for f in files:
             p = Path(dirpath) / f
             if not p.is_symlink() and p.is_file():
-                out.append((p, str(rel / f)))
-    return out
+                yield p, str(rel / f)
+
+
+def _save_files(app: core.App) -> Iterator[tuple[Path, str]]:
+    pfx = Path(app.prefix) / "pfx"
+    user = user_dir(pfx) if app.prefix else None
+    if user is None:
+        return
+    for d in PROFILE_DIRS:
+        yield from _walk(user / d, f"user/{d}")
+    for d in PUBLIC_DIRS:
+        yield from _walk(pfx / "drive_c/users/Public" / d, f"Public/{d}")
 
 
 def save_files(app: core.App) -> list[tuple[Path, str]]:
     """(file, name in the backup) for everything worth backing up. Names start with "user/" (the
     profile) or "Public/" (shared documents)."""
-    pfx = Path(app.prefix) / "pfx"
-    user = user_dir(pfx) if app.prefix else None
-    if user is None:
-        return []
-    out = [item for d in PROFILE_DIRS for item in _walk(user / d, f"user/{d}")]
-    out += [item for d in PUBLIC_DIRS for item in _walk(pfx / "drive_c/users/Public" / d, f"Public/{d}")]
-    return out
+    return list(_save_files(app))
 
 
-def save_size(app: core.App) -> int:
-    return core.files_size(p for p, _n in save_files(app))
+def has_saves(app: core.App) -> bool:
+    """Is there anything to back up? (Stops at the first file: quick even for a big profile.)"""
+    return next(_save_files(app), None) is not None
 
 
 def backup_dir(paths: core.Paths, name: str) -> Path:

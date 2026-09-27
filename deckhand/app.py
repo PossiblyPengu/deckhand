@@ -779,7 +779,8 @@ class DonePage(Page):
         found = saves.backups(self.win.paths, app.name)
         self.restore_btn.setVisible(bool(found))
         if found:  # installed again: it can have its saves back
-            self.restore_btn.setText(f"Restore saves from {time.strftime('%b %d', time.localtime(saves.created(found[0])))}")
+            when = time.strftime("%b %d", time.localtime(saves.created(found[0])))
+            self.restore_btn.setText(f"Restore saves from {when}")
 
     def installer_files(self) -> list[Path]:
         if not self.app or not self.app.installer:
@@ -1121,8 +1122,9 @@ class StoresPage(Page):
         """A Windows app: download its official installer, then install it like any setup file."""
         text = (f"Deckhand downloads {s.name}'s official installer (from {s.site}) and installs it like any setup "
                 f"file. Click through the installer; if {s.name} opens by itself at the end, close it or pick "
-                f"“Installer is done — continue”.\n\nThen {s.name} is in your Steam library. Sign in the first time "
-                "you open it; you install and play its games from inside it.") + (f"\n\n{s.note}" if s.note else "")
+                f"“Installer is done — continue”.\n\nThen {s.name} is in your Steam library. Sign in the first "
+                "time you open it; you install and play its games from inside it.")
+        text += f"\n\n{s.note}" if s.note else ""
         if Sheet.ask(self, f"Install {s.name}?", text, ("Download and install", "Cancel")) != 0:
             return
         self.status.setText(f"Downloading {s.name}…")
@@ -1362,7 +1364,8 @@ class AddonsPage(Page):
             parts = [a.blurb, addons.status(a, installed=self.installed)]
             if a.id in self.apps:
                 parts.append(STEAM_STATE[self.steam.get(a.id, "out")])
-            it = QListWidgetItem(logo_icon(a.id, a.name, a.color), f"{a.name}\n" + "  ·  ".join(parts + [f"from {a.site}"]))
+            parts.append(f"from {a.site}")
+            it = QListWidgetItem(logo_icon(a.id, a.name, a.color), f"{a.name}\n" + "  ·  ".join(parts))
             it.setData(Qt.ItemDataRole.UserRole, a.id)
             self.list.addItem(it)
         self.list.setCurrentRow(min(row, self.list.count() - 1))
@@ -2516,7 +2519,7 @@ class MainWindow(QMainWindow):
             parts.append("its Steam shortcut and artwork" if app.steam_appid else "its shortcut")
         freed = f"This frees {core.human_size(size)}.\n\n" if size else ""
         text = freed + "Deletes " + "; ".join(parts) + "."
-        has_saves = bool(saves.save_files(app))
+        has_saves = saves.has_saves(app)
         buttons = ("Uninstall", "Back up saves, then uninstall", "Keep") if has_saves else ("Uninstall", "Keep")
         choice = Sheet.ask(self, f"Uninstall {app.name}?", text, buttons, primary=len(buttons) - 1, danger=(0,))
         if choice not in range(len(buttons) - 1):
@@ -2580,19 +2583,22 @@ class MainWindow(QMainWindow):
         def total(xs) -> str:
             return core.human_size(sum(x.size for x in xs))
 
+        def games(xs) -> str:
+            return f"{len(xs)} game that isn't" if len(xs) == 1 else f"{len(xs)} games that aren't"
+
         lines = []
         caches = [i for i in safe if i.kind == "shadercache"]
         downloads = [i for i in safe if i.kind == "download"]
         if caches:
-            lines.append(f"•  Shader caches of {len(caches)} game{'s' * (len(caches) != 1)} that aren't installed: "
-                         f"{total(caches)}. Safe to delete: Steam builds them again if you reinstall a game.")
+            lines.append(f"•  Shader caches of {games(caches)} installed: {total(caches)}. Safe to delete: Steam "
+                         "builds them again if you reinstall a game.")
         if downloads:
             lines.append(f"•  Deckhand's leftover downloads: {total(downloads)}.")
         if setups:
             biggest = ", ".join(f"{i.name or f'app {i.appid}'} ({core.human_size(i.size)})" for i in setups[:4])
-            lines.append(f"•  Windows setups (compatdata) of {len(setups)} game{'s' * (len(setups) != 1)} that aren't "
-                         f"installed: {total(setups)} — {biggest}{', …' if len(setups) > 4 else ''}. Games without "
-                         "Steam Cloud keep their saves in these.")
+            lines.append(f"•  Windows setups (compatdata) of {games(setups)} installed: {total(setups)} — "
+                         f"{biggest}{', …' if len(setups) > 4 else ''}. Games without Steam Cloud keep their saves "
+                         "in these.")
         unfinished = core.orphan_prefixes(self.paths)
         if unfinished:
             lines.append(f"•  {len(unfinished)} unfinished install{'s' * (len(unfinished) != 1)}: see Installed "
