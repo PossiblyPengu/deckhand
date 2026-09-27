@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:  # release a branch's build from the Actions tab: the release makes its v<version> tag
+    inputs:
+      version:
+        description: "Version to release, e.g. 4.2.0 (must be the one in deckhand/__init__.py)"
+        required: true
 
 permissions:
   contents: write
@@ -20,6 +25,15 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Version
+        env:
+          WANTED: ${{ inputs.version || github.ref_name }}
+        run: |
+          VERSION="${WANTED#v}"
+          HAVE="$(python -c 'import deckhand; print(deckhand.__version__)')"
+          [ "$VERSION" = "$HAVE" ] || { echo "Asked to release $VERSION, but the code is Deckhand $HAVE"; exit 1; }
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Install build dependencies
         run: |
@@ -57,12 +71,14 @@ jobs:
           python - > notes.md <<'PY'
           import json, os
           info = json.load(open("bin/deckhand.json"))
-          print(info.get("notes", "") if info.get("version") == os.environ["GITHUB_REF_NAME"].lstrip("v") else "")
+          print(info.get("notes", "") if info.get("version") == os.environ["VERSION"] else "")
           PY
 
       - name: Publish GitHub release assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
           body_path: notes.md
           files: |
             deckhand-linux-x86_64
