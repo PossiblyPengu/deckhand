@@ -1,6 +1,8 @@
 """Streaming services: installed from (a fake) Flathub and added to (a fake) Steam."""
 import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -50,6 +52,10 @@ class TestStreaming(FlatpakEnv):
         self.assertIn("flatpak run com.google.Chrome --kiosk", script)
         self.assertIn("--window-size=1024,640", script)
         self.assertIn("--force-device-scale-factor=1.25", script)
+        self.assertIn("--kiosk", script)
+        self.assertIn("--app=https://www.xbox.com/play", script)
+        self.assertIn("--start-maximized", script)
+        self.assertIn("SteamGamepadUI", script)
         self.assertIn("https://www.xbox.com/play", script)
         self.assertEqual((app.kind, app.id, app.steam_added), ("stream", "stream-xbox-cloud", "file"))
         self.assertTrue(core.in_steam(app, [self.steam]))
@@ -59,6 +65,42 @@ class TestStreaming(FlatpakEnv):
         streaming.set_up(streaming.service("geforce-now"), self.paths, roots=[self.steam])
         self.assertEqual(len([c for c in self.calls() if c.startswith("install")]), before)
         self.assertEqual(len(core.steam_shortcuts([self.steam])), 2)
+
+    def test_launcher_uses_kiosk_in_game_mode_and_a_window_on_the_desktop(self):
+        app = streaming.set_up(streaming.service("xbox-cloud"), self.paths, roots=[self.steam])
+        launcher = app.launcher
+        self.assertIn("steam -silent", Path(launcher).read_text())
+        bindir = self.tmp / "flatpak-bin"
+        steam = bindir / "steam"
+        steam.write_text('#!/bin/bash\necho "steam $@" >> "$FAKE_FLATPAK_LOG"\n')
+        steam.chmod(0o755)
+        pgrep = bindir / "pgrep"
+        pgrep.write_text("#!/bin/sh\nexit 1\n")
+        pgrep.chmod(0o755)
+        self.flatpak_log.write_text("")
+        game_mode = dict(os.environ, PATH=f"{self.tmp / 'flatpak-bin'}:{os.environ['PATH']}", SteamGamepadUI="1")
+        subprocess.run(["bash", launcher], env=game_mode, check=True)
+        game_calls = self.calls()
+        game_run = next(c for c in game_calls if c.startswith("run "))
+        self.assertIn("--kiosk", game_run)
+
+        self.flatpak_log.write_text("")
+        desktop = dict(os.environ)
+        for key in ("SteamGamepadUI", "XDG_CURRENT_DESKTOP", "GAMESCOPE_WAYLAND_DISPLAY"):
+            desktop.pop(key, None)
+        desktop["PATH"] = f"{self.tmp / 'flatpak-bin'}:{desktop['PATH']}"
+        subprocess.run(["bash", launcher], env=desktop, check=True)
+        desktop_calls = self.calls()
+        desktop_run = next(c for c in desktop_calls if c.startswith("run "))
+        self.assertIn("--app=https://www.xbox.com/play", desktop_run)
+        self.assertIn("--start-maximized", desktop_run)
+        self.assertNotIn("--kiosk", desktop_run)
+        for _ in range(50):
+            desktop_calls = self.calls()
+            if "steam -silent" in desktop_calls:
+                break
+            time.sleep(0.02)
+        self.assertIn("steam -silent", desktop_calls)
 
     def test_an_installed_edge_is_used_instead_of_installing_chrome(self):
         self.flatpak_db.write_text("com.microsoft.Edge\n")
@@ -109,6 +151,7 @@ class TestStreaming(FlatpakEnv):
         launcher = Path(app.launcher).read_text()
         self.assertIn("flatpak run org.chromium.Chromium --kiosk", launcher)
         self.assertIn(f"--load-extension={ext}", launcher)
+        self.assertEqual(launcher.count(f"--load-extension={ext}"), 2)
         self.assertIn("curl -fsL", launcher)  # keeps itself up to date
         self.assertEqual(app.options, ["better-xcloud"])
         # Setting it up again keeps the choice; turning it off goes back to Chrome. One shortcut throughout.

@@ -1,5 +1,5 @@
 {
-  "version": "4.2.1",
-  "sha256": "fc6239129754ec718623ebba1209a83c1c49cf9e7d92124831056042cb3364b4",
-  "notes": "Installed now lists everything Deckhand set up \u2014 streaming services, game stores and add-ons too; streaming services fill the Deck's screen properly."
+  "version": "4.2.2",
+  "sha256": "62eb7599192c3cbc51287a0e1e4052a23c2793a564e6847bc1dbc2d10ccfc151",
+  "notes": "Streaming services can be closed in Desktop Mode, where they open as a normal window and STEAM + X brings up the keyboard; Installed lists everything Deckhand set up; streaming fills the Deck's screen."
 }

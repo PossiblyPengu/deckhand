@@ -56,8 +56,12 @@ for a sharper picture, stream stats, Xbox remote play and mouse & keyboard. Choo
 later by picking Xbox Cloud Gaming again. It runs in Chromium (Google Chrome no longer lets it be loaded this way), is
 installed without Tampermonkey, and updates itself in the background each time you start it.
 
-The page shows which browsers and apps are already on the Deck, and what each service uses. Whatever a service needs is installed from Flathub for your user only, so no admin password is needed. Sign in the first time
-you open it; leave with STEAM → Exit game. Picking a service again offers to remove it (the browser or app stays).
+The page shows which browsers and apps are already on the Deck, and what each service uses. Whatever a service
+needs is installed from Flathub for your user only, so no admin password is needed. Sign in the first time you
+open it; leave with STEAM → Exit game. In Desktop Mode they open as a normal maximized window instead, with a
+close button. Press STEAM + X there for the on-screen keyboard (Deckhand starts Steam in the background if it
+isn't running, since the keyboard is Steam's). Picking a service again offers to remove it (the browser or app
+stays).
 
 ## Add-ons
 

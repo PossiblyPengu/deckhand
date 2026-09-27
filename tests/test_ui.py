@@ -521,6 +521,8 @@ class TestWindow(Env):
             page._activate(page.list.item(0))  # answers 1: Add with Better xCloud
             self.assertIn("Add to Steam: opens in Google Chrome (Deckhand installs it", texts[-1])
             self.assertIn("Add with Better xCloud: opens in Chromium (Deckhand installs it", texts[-1])
+            self.assertIn("In Desktop Mode it opens as a window you can close; STEAM + X opens the keyboard.",
+                          texts[-1])
             self.wait_for(lambda: "Better xCloud on (Chromium)" in page.list.item(0).text())
             installs = [c for c in log.read_text().splitlines() if c.startswith("install")]
             self.assertEqual(installs, ["install --user -y --noninteractive flathub org.chromium.Chromium"])

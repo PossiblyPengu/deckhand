@@ -1292,14 +1292,17 @@ class StreamingPage(Page):
             what = f"It opens in {streaming.app_name(streaming.uses(svc, installed))}, which is already installed. "
         else:
             what = f"{svc.name} is already installed. "
+        desktop_note = ("\n\nIn Desktop Mode it opens as a window you can close; STEAM + X opens the keyboard."
+                        if svc.is_web else "")
         text = what + f"Then {svc.name} is in your Steam library with its own artwork" + (
-            ", full screen with the controller working." if svc.is_web else ".")
+            ", full screen with the controller working." if svc.is_web else ".") + desktop_note
         if xbox:  # two ways, each saying exactly which browser it uses and whether that gets installed
             text = (f"• Add to Steam: opens in {self._browser_state(svc, installed, False)}.\n"
                     f"• Add with Better xCloud: opens in {self._browser_state(svc, installed, True)}, with Better "
                     "xCloud — a free add-on for a sharper picture, stream stats, Xbox remote play and mouse & "
                     "keyboard. It needs Chromium because Google Chrome can't load it.\n\n"
-                    f"Either way {svc.name} is in your Steam library, full screen with the controller working.")
+                    f"Either way {svc.name} is in your Steam library, full screen with the controller working."
+                    + desktop_note)
             choice = Sheet.ask(self, f"Add {svc.name} to Steam?", text,
                                ("Add to Steam", "Add with Better xCloud", "Cancel"))
             if choice in (0, 1):

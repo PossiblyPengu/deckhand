@@ -1,8 +1,8 @@
 """Game streaming services as Steam shortcuts.
 
-Cloud services (Xbox Cloud Gaming, GeForce NOW, …) run full screen in a browser; home streaming
-(Moonlight, chiaki-ng) uses its own app. Either way the app comes from Flathub, installed for this
-user only (no password needed), and the service ends up in Steam like an installed program: an
+Cloud services (Xbox Cloud Gaming, GeForce NOW, …) run full screen in a browser in Game Mode or in a closable
+app window in Desktop Mode; home streaming (Moonlight, chiaki-ng) uses its own app. Either way the app comes
+from Flathub, installed for this user only (no password needed), and the service ends up in Steam like an
 App with kind "stream", a launcher script, artwork, and Steam's own add-a-game hand-off.
 """
 from __future__ import annotations
@@ -70,6 +70,12 @@ SERVICES = (
 # and is sized for 7". Kiosk mode has no address bar; leave with Steam's own "Exit game".
 BROWSER_ARGS = ("--kiosk", "--window-size=1024,640", "--force-device-scale-factor=1.25",
                 "--device-scale-factor=1.25", "--no-first-run", "--no-default-browser-check")
+# Desktop Mode has no "Exit game": open the page as a Chrome app window instead — no address bar, but a normal
+# maximized window with a title bar and close button.
+DESKTOP_BROWSER_ARGS = ("--start-maximized", "--force-device-scale-factor=1.25", "--device-scale-factor=1.25",
+                        "--no-first-run", "--no-default-browser-check")
+# core.in_game_mode(), for bash.
+GAME_MODE_TEST = '[ "$SteamGamepadUI" = 1 ] || [ "${XDG_CURRENT_DESKTOP,,}" = gamescope ] || [ -n "$GAMESCOPE_WAYLAND_DISPLAY" ]'
 
 
 def service(service_id: str) -> Service | None:
@@ -287,7 +293,7 @@ def allow_controllers(app_id: str) -> None:
 # ── Launchers and the Steam side ─────────────────────────────────────────────
 
 
-def command(svc: Service, installed: set[str], better_xcloud: bool = False) -> list[str]:
+def command(svc: Service, installed: set[str], better_xcloud: bool = False, desktop: bool = False) -> list[str]:
     runner = uses(svc, installed, better_xcloud)
     if runner.startswith("local:"):
         return [local_copy(svc) or svc.local[0], *svc.args]
@@ -296,6 +302,8 @@ def command(svc: Service, installed: set[str], better_xcloud: bool = False) -> l
     if svc.is_web:
         b = uses(svc, installed, better_xcloud)
         ext = [f"--load-extension={better_xcloud_dir()}"] if better_xcloud else []
+        if desktop:
+            return ["flatpak", "run", b, *DESKTOP_BROWSER_ARGS, *ext, *svc.args, f"--app={svc.url}"]
         return ["flatpak", "run", b, *BROWSER_ARGS, *ext, *svc.args, svc.url]
     return ["flatpak", "run", svc.app, *svc.args]
 
@@ -314,7 +322,15 @@ def write_launcher(svc: Service, paths: core.Paths, installed: set[str], better_
         lines.append(f"( curl -fsL --max-time 60 {q(BETTER_XCLOUD_URL)} -o {q(str(d / '.new.js'))} "
                      f"&& grep -q '==UserScript==' {q(str(d / '.new.js'))} "
                      f"&& mv {q(str(d / '.new.js'))} {q(str(d / 'better-xcloud.user.js'))} ) >/dev/null 2>&1 &")
-    lines.append(f"exec {' '.join(q(c) for c in command(svc, installed, better_xcloud))}")
+    if svc.is_web:
+        game_mode = " ".join(q(c) for c in command(svc, installed, better_xcloud))
+        desktop = " ".join(q(c) for c in command(svc, installed, better_xcloud, desktop=True))
+        lines += [f"if {GAME_MODE_TEST}; then", f"  exec {game_mode}", "fi",
+                  "# Desktop Mode's only keyboard is Steam's (STEAM + X), which needs Steam running.",
+                  "if ! pgrep -x steam >/dev/null 2>&1 && command -v steam >/dev/null 2>&1; then",
+                  "  (steam -silent >/dev/null 2>&1 &)", "fi", f"exec {desktop}"]
+    else:
+        lines.append(f"exec {' '.join(q(c) for c in command(svc, installed, better_xcloud))}")
     script.write_text("\n".join(lines) + "\n", encoding="utf-8")
     script.chmod(0o755)
     return script
