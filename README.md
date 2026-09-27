@@ -165,6 +165,8 @@ The tests use a fake Proton and fake Steam install, so they run anywhere, includ
 
 **Shipping a new version:** bump `__version__` in `deckhand/__init__.py`, then run
 `scripts/publish_bin.sh "one line of release notes"` and commit `bin/`. That rebuilds the binary and writes
-`bin/deckhand.json`, which `get.sh` and the in-app updater read (from `main`, then the development branch). Pushing a
-`v*` tag also publishes a GitHub release; the updater checks releases too and takes whichever version is newest.
+`bin/deckhand.json`, which `get.sh` and the in-app updater read (from `main`, then the development branch). Once that
+reaches `main`, the Release workflow runs the tests and publishes GitHub release `v<version>` with the same binary and
+those notes (it can also be run from the Actions tab); the updater checks releases too and takes whichever version is
+newest.
 `DECKHAND_UPDATE_BASE=<url of a folder with deckhand.json>` points the updater elsewhere for testing.
