@@ -15,6 +15,8 @@ case "$1" in
   list) cat "$db" 2>/dev/null ;;
   install) [ -n "$FAKE_FLATPAK_FAIL" ] && { echo "error: no network"; exit 1; }
            echo "Installing ${@: -1}"; echo "${@: -1}" >> "$db" ;;
+  uninstall) grep -qx "${@: -1}" "$db" 2>/dev/null || { echo "error: ${@: -1} not installed"; exit 1; }
+             grep -vx "${@: -1}" "$db" > "$db.tmp"; mv "$db.tmp" "$db" ;;
 esac
 exit 0
 '''

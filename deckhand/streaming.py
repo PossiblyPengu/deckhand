@@ -14,7 +14,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
 from . import core
 
@@ -120,9 +120,9 @@ def local_copy(svc: Service, home: Path | None = None) -> str | None:
     return None
 
 
-def detect(installed: set[str]) -> set[str]:
+def detect(installed: set[str], services: Iterable[Service] = SERVICES) -> set[str]:
     """Everything the services could run in that's already here: Flatpak ids, plus "local:<service id>"."""
-    return set(installed) | {f"local:{s.id}" for s in SERVICES if s.local and local_copy(s)}
+    return set(installed) | {f"local:{s.id}" for s in services if s.local and local_copy(s)}
 
 
 def spots(svc: Service, entries: list[tuple[Path, dict]], launchers: Path) -> list[dict]:
@@ -257,6 +257,24 @@ def install_app(app_id: str, log: Callable[[str], None] = lambda s: None,
                                 + "\n".join(tail))
 
 
+def uninstall_app(app_id: str) -> None:
+    """Uninstall a Flatpak app installed for this user (what install_app installed)."""
+    exe = _flatpak()
+    if not exe:
+        raise core.InstallError("Flatpak isn't available on this system.")
+    proc = subprocess.run([exe, "uninstall", "--user", "-y", "--noninteractive", app_id], env=core.clean_env(),
+                          capture_output=True, text=True, errors="replace", timeout=300)
+    if proc.returncode != 0:
+        raise core.InstallError(f"Couldn't uninstall {app_name(app_id)}. If it was installed for all users, "
+                                f"remove it in Discover (Desktop Mode).\n\n{(proc.stdout + proc.stderr).strip()[-800:]}")
+
+
+def open_app(app_id: str) -> None:
+    """Start a Flatpak app, independent of Deckhand."""
+    subprocess.Popen(["flatpak", "run", app_id], env=core.clean_env(), start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+
+
 def allow_controllers(app_id: str) -> None:
     """Let a browser see game controllers (the Gamepad API needs udev's device info)."""
     exe = _flatpak()
@@ -281,10 +299,11 @@ def command(svc: Service, installed: set[str], better_xcloud: bool = False) -> l
     return ["flatpak", "run", svc.app, *svc.args]
 
 
-def write_launcher(svc: Service, paths: core.Paths, installed: set[str], better_xcloud: bool = False) -> Path:
+def write_launcher(svc: Service, paths: core.Paths, installed: set[str], better_xcloud: bool = False,
+                   kind: str = "stream") -> Path:
     paths.launchers.mkdir(parents=True, exist_ok=True)
-    script = paths.launchers / f"stream-{svc.id}.sh"
-    log = paths.logs / f"stream-{svc.id}-launch.log"
+    script = paths.launchers / f"{kind}-{svc.id}.sh"
+    log = paths.logs / f"{kind}-{svc.id}-launch.log"
     q = shlex.quote
     lines = ["#!/bin/bash", f"# Deckhand: {svc.name}",
              f"{{ mkdir -p {q(str(log.parent))} && exec >{q(str(log))} 2>&1; }} || true"]
@@ -300,41 +319,45 @@ def write_launcher(svc: Service, paths: core.Paths, installed: set[str], better_
     return script
 
 
-def app_for(svc: Service, paths: core.Paths) -> core.App | None:
-    return next((a for a in core.Library(paths).load() if a.kind == "stream" and a.id == f"stream-{svc.id}"), None)
+def app_for(svc: Service, paths: core.Paths, kind: str = "stream") -> core.App | None:
+    return next((a for a in core.Library(paths).load() if a.kind == kind and a.id == f"{kind}-{svc.id}"), None)
 
 
 def set_up(svc: Service, paths: core.Paths, status: Callable[[str], None] = lambda s: None,
-           roots=None, better_xcloud: bool | None = None, fetch: Callable[[str], bytes] | None = None) -> core.App:
+           roots=None, better_xcloud: bool | None = None, fetch: Callable[[str], bytes] | None = None,
+           kind: str = "stream") -> core.App:
     """Install what the service needs, write its launcher and add it to Steam (only once).
-    `better_xcloud` (Xbox Cloud Gaming only): turn it on/off; None keeps the current choice."""
-    existing = app_for(svc, paths)
+    `better_xcloud` (Xbox Cloud Gaming only): turn it on/off; None keeps the current choice.
+    `kind` is the App's kind: "stream", or "store" for a game store's Linux app (stores.py)."""
+    existing = app_for(svc, paths, kind)
     if better_xcloud is None:
         better_xcloud = bool(existing and BETTER_XCLOUD in existing.options)
     better_xcloud = better_xcloud and svc.id == "xbox-cloud"
-    installed = detect(installed_apps())
+    installed = detect(installed_apps(), (svc,))
     need = needs(svc, installed, better_xcloud)
     if need:
         report = getattr(status, "progress", lambda pct: None)
-        status(f"Installing {app_name(need)} from Flathub…")
+        what = svc.name if need == svc.app else app_name(need)
+        status(f"Installing {what} from Flathub…")
         report(-1)
-        install_app(need, lambda line: status(f"Installing {app_name(need)} from Flathub…  {line[:60]}"),
-                    lambda pct: (status(f"Installing {app_name(need)} from Flathub…  {pct}%"), report(pct)))
+        install_app(need, lambda line: status(f"Installing {what} from Flathub…  {line[:60]}"),
+                    lambda pct: (status(f"Installing {what} from Flathub…  {pct}%"), report(pct)))
         report(-1)
-        installed = detect(installed_apps()) | {need}
+        installed = detect(installed_apps(), (svc,)) | {need}
     if better_xcloud:
         status("Installing Better xCloud…")
         install_better_xcloud(fetch=fetch)
     if svc.is_web and uses(svc, installed, better_xcloud) in BROWSERS:
         allow_controllers(uses(svc, installed, better_xcloud))
     status("Adding to Steam…")
-    launcher = write_launcher(svc, paths, installed, better_xcloud)
+    launcher = write_launcher(svc, paths, installed, better_xcloud, kind)
     app = existing or core.App(
-        id=f"stream-{svc.id}", name=svc.name, exe=str(launcher), prefix="", runtime_name="", runtime_kind="",
-        runtime_path="", kind="stream")
+        id=f"{kind}-{svc.id}", name=svc.name, exe=str(launcher), prefix="", runtime_name="", runtime_kind="",
+        runtime_path="", kind=kind)
     app.options = [BETTER_XCLOUD] if better_xcloud else []
     app.launcher = app.exe = str(launcher)
     app.installed_at = time.time()
+    core.use_logo(app, paths, svc.id)
     core.write_desktop_entry(app)
     core.add_to_steam(app, roots)
     core.Library(paths).upsert(app)

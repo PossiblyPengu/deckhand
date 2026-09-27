@@ -1,5 +1,5 @@
 {
-  "version": "4.0.0",
-  "sha256": "26950f2817c9b6f0fcb08ea23dcbbd76fd85c414a755bdaa63f988bb249e73e8",
-  "notes": "Deckhand 4.0: fully renamed \u2014 the app, its command, its download and its folder (~/.local/share/deckhand) are all called deckhand now."
+  "version": "4.2.0",
+  "sha256": "2d1b8e75af731169798e6e9221b185e82e40e9525092a129c0ee335ef11f24f2",
+  "notes": "Game stores (Heroic, Battle.net, EA, Ubisoft, Epic, Amazon, Rockstar, itch, Minecraft) with real logos; GE-Proton and more add-ons; Fix it for programs that won't start; save backups; SteamGridDB art; Free up space."
 }

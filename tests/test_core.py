@@ -110,6 +110,11 @@ if [ "$2" = cmd.exe ]; then  # prefix setup / the no-op used to wait for Wine
   touch "$pfx/system.reg"
   exit 0
 fi
+echo "$*" >> "$STEAM_COMPAT_DATA_PATH/proton-args.txt"
+if [[ "$4" == /T:* ]]; then  # a self-extractor (DirectX's redistributable) unpacking itself
+  mkdir -p "$c/deckhand-directx" && touch "$c/deckhand-directx/DXSETUP.exe"; exit 0
+fi
+[ -n "$FAKE_RC" ] && exit "$FAKE_RC"
 ls "$pfx/dosdevices" > "$STEAM_COMPAT_DATA_PATH/drives-during-install.txt"
 readlink "$pfx/dosdevices/z:" > "$STEAM_COMPAT_DATA_PATH/z-during-install.txt"
 echo "$2" > "$STEAM_COMPAT_DATA_PATH/installer-arg.txt"
