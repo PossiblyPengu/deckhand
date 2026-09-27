@@ -1931,6 +1931,10 @@ class MainWindow(QMainWindow):
         """Rewrite launch scripts so programs installed by older versions get current fixes."""
         roots = core.steam_roots()
         for app in self.library.load():
+            folder = core.guess_program_dir(app)
+            if folder is not None:  # recorded without its folder on D: (see guess_program_dir)
+                app.extra_dirs = [str(folder)]
+                self.library.upsert(app)
             if app.kind == "program" and app.launcher and app.prefix and Path(app.prefix).is_dir():
                 try:
                     core.write_launcher(app, self.paths, roots[0] if roots else None, roots)

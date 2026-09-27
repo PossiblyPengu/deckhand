@@ -1518,7 +1518,35 @@ def program_dirs(exe: Path, new_dirs: Iterable[Path], home: Path | None = None) 
                 continue  # the program sits directly in ~/Games: no folder of its own to remove
             top = top / rel[0]
         out.append(top)
+    if not out:
+        # The program's own folder already existed (say, left by an earlier attempt), so only its
+        # subfolders are new. If the installer filled the folder the program sits in, that folder
+        # is the program's — unless it's a shared one (home, ~/Games, Downloads…).
+        folder = exe.parent.resolve()
+        filled = any(d.resolve().parent == folder for d in new_dirs)
+        shared = (folder == home or not folder.is_relative_to(home)
+                  or (folder.parent == home and folder.name.lower() in _PROTECTED_HOME_DIRS | _GENERIC_FOLDERS))
+        if filled and not shared:
+            out.append(folder)
     return out
+
+
+def guess_program_dir(app: App, home: Path | None = None) -> Path | None:
+    """For a program recorded before 4.1.1 without its folder on D: (its folder already existed when it
+    was installed): the folder right under home (or under ~/Games and the like) that holds its .exe."""
+    home = (home or Path.home()).resolve()
+    exe = Path(app.exe)
+    if app.kind != "program" or app.extra_dirs or not app.prefix or exe.is_relative_to(app.prefix):
+        return None
+    try:
+        rel = exe.resolve().relative_to(home).parts
+    except ValueError:
+        return None
+    if rel and rel[0].lower() in _PROTECTED_HOME_DIRS | _GENERIC_FOLDERS:
+        folder = home / rel[0] / rel[1] if len(rel) >= 3 else None
+    else:
+        folder = home / rel[0] if len(rel) >= 2 else None
+    return folder if folder is not None and folder.is_dir() else None
 
 
 _PROTECTED_HOME_DIRS = {"downloads", "desktop", "documents", "music", "pictures", "videos", "games",
@@ -1656,6 +1684,7 @@ def directx_log(pfx: Path, lines: int = 25) -> str:
             dirnames.clear()  # temp folders are shallow; don't crawl the whole profile
         dirnames[:] = [d for d in dirnames if not os.path.islink(os.path.join(dirpath, d))]
         logs += [Path(dirpath) / f for f in files if f.lower() in names]
+    seen: set[str] = set()
     for f in sorted(set(logs)):
         try:
             text = f.read_text(encoding="utf-8", errors="replace")
@@ -1663,6 +1692,9 @@ def directx_log(pfx: Path, lines: int = 25) -> str:
             continue
         if "\x00" in text[:200]:  # UTF-16
             text = f.read_bytes().decode("utf-16", errors="replace")
+        if text in seen:
+            continue  # the same log in two places (DirectX setup writes to C:\\windows and its Logs folder)
+        seen.add(text)
         tail = [ln.rstrip() for ln in text.splitlines() if ln.strip()][-lines:]
         out.append(f"--- {f.name} (last {len(tail)} lines) ---\n" + "\n".join(tail))
     return "\n".join(out)

@@ -733,6 +733,14 @@ class TestInstallFlow(Env):
             proc.kill()
             proc.wait()
 
+    def test_directx_log_in_two_places_is_shown_once(self):
+        windows = self.tmp / "pfx/drive_c/windows"
+        (windows / "Logs").mkdir(parents=True)
+        for d in (windows, windows / "Logs"):
+            (d / "DirectX.log").write_text("DXWSetup: WinMain()\n")
+        text = core.directx_log(self.tmp / "pfx")
+        self.assertEqual(text.count("DXWSetup: WinMain()"), 1)
+
     def test_directx_log_is_read_even_in_utf16(self):
         windows = self.tmp / "pfx/drive_c/windows"
         windows.mkdir(parents=True)
@@ -750,6 +758,33 @@ class TestInstallFlow(Env):
         self.assertEqual(core.program_dirs(h / "CoolGame/x.exe", [h / "CoolGame", h / "Other"], h),
                          [h / "CoolGame"])
         self.assertEqual(core.program_dirs(h / "Games/x.exe", [h / "Games"], h), [])
+
+    def test_program_folder_that_existed_before_the_install(self):
+        h = self.home.resolve()
+        game = h / "Games/Some Game"  # made by an earlier attempt: only its subfolders are new
+        exe = game / "Game.exe"
+        new = [game / "Engine", game / "Bonus"]
+        self.assertEqual(core.program_dirs(exe, new, h), [game])
+        # Never a shared folder, even if the installer put folders next to the program there.
+        self.assertEqual(core.program_dirs(h / "Games/game.exe", [h / "Games/Engine"], h), [])
+        self.assertEqual(core.program_dirs(h / "Downloads/game.exe", [h / "Downloads/Engine"], h), [])
+        self.assertEqual(core.program_dirs(h / "game.exe", [h / "Engine"], h), [])
+        # Nothing new next to the program: nothing to claim.
+        self.assertEqual(core.program_dirs(exe, [h / "Other/New"], h), [])
+
+    def test_program_recorded_without_its_folder_gets_it_back(self):
+        h = self.home.resolve()
+        game = h / "Games/Some Game"
+        (game / "Engine").mkdir(parents=True)
+        pfx = self.tmp / "pfx-x"
+        app = core.App("x", "X", str(game / "Game.exe"), str(pfx), "P", "proton", "/p")
+        self.assertEqual(core.guess_program_dir(app, h), game)
+        app.exe = str(h / "Games/game.exe")  # right in a shared folder: nothing of its own
+        self.assertIsNone(core.guess_program_dir(app, h))
+        app.exe, app.extra_dirs = str(game / "Game.exe"), [str(game)]  # already recorded
+        self.assertIsNone(core.guess_program_dir(app, h))
+        app.extra_dirs, app.exe = [], str(pfx / "pfx/drive_c/Game/Game.exe")  # on C:: nothing outside
+        self.assertIsNone(core.guess_program_dir(app, h))
 
     def test_uninstall_never_deletes_outside_home_or_standard_folders(self):
         outside = self.tmp / "elsewhere"

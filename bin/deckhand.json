@@ -1,5 +1,5 @@
 {
-  "version": "4.1.0",
-  "sha256": "2412012077489b7837884096c261bebc5bc74d82bbcd5c74669b505f318c42df",
-  "notes": "Streaming apps (Chrome, Chromium, Edge, Moonlight, chiaki-ng) are now installed from Flathub the way Discover does it, so they show up in Discover and it keeps them up to date."
+  "version": "4.1.1",
+  "sha256": "953d5ba44765186e70cf1cf3ee07fafcaffbe63eeca9dcc9c6482ac1175037c2",
+  "notes": "Fixes: uninstalling now also removes a program's folder on D: when that folder already existed before the install (programs installed earlier get it recorded on the next start), and the DirectX setup log is no longer copied into the install log twice."
 }
