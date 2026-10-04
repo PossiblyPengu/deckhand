@@ -1857,12 +1857,19 @@ class MainWindow(QMainWindow):
                                                              self.installed):
             self._sync_stations()
             return
-        if self.thread is not None or self.pending is not None or self.stack.currentWidget() is self.updating:
-            self.flash("Finish what's running first")
+        if self.must_stay():
             self._sync_stations()
             return
         {"install": self.go_home, "stores": self.show_stores, "stream": self.show_streaming,
          "addons": self.show_addons, "installed": self.show_installed}[key]()
+
+    def must_stay(self) -> bool:
+        """True (and says so) while the page on screen can't be left: an install running, a program waiting
+        to be picked, an update. Nothing else leads back to it."""
+        if self.thread is not None or self.pending is not None or self.stack.currentWidget() is self.updating:
+            self.flash("Finish what's running first")
+            return True
+        return False
 
     def _sync_stations(self) -> None:
         current = self.section_of(self.stack.currentWidget())
@@ -1930,7 +1937,7 @@ class MainWindow(QMainWindow):
         self.go(self.browser)
 
     def confirm_install(self, installer: Path) -> None:
-        if self.thread is not None or self.busy:
+        if self.thread is not None or self.pending is not None or self.update_thread is not None or self.busy:
             self.flash("Finish what's running first")
             return
         name = core.guess_name(installer)
@@ -2502,6 +2509,8 @@ class MainWindow(QMainWindow):
         if Sheet.current is not None:
             return
         def look_again() -> None:
+            if self.must_stay():
+                return
             self.go_home()
             self.flash("Checked Downloads, Desktop and SD cards")
 
@@ -2747,7 +2756,7 @@ class MainWindow(QMainWindow):
         target = updater.self_path()
         if self.update_info is None or target is None or self.update_thread is not None:
             return
-        if self.thread is not None:
+        if self.thread is not None or self.pending is not None:
             Sheet.ask(self, "Finish the install first", "Deckhand can update once the current install is "
                       "done.", ("Close",))
             return

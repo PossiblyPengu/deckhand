@@ -197,6 +197,23 @@ class TestStreaming(FlatpakEnv):
         self.assertNotIn("load-extension", Path(app.launcher).read_text())
         self.assertEqual(len(core.steam_shortcuts([self.steam])), 1)
 
+    def test_turning_better_xcloud_on_before_steam_saved_the_shortcut_sends_nothing_again(self):
+        sent = []
+        orig = core.request_steam_add, core.STEAM_ADD_WAIT
+        core.request_steam_add = lambda f: (sent.append(f), True)[1]  # Steam takes it, saves its list later
+        core.STEAM_ADD_WAIT = 0.1
+        core.steam_is_running = lambda: True
+        try:
+            svc = streaming.service("xbox-cloud")
+            first = streaming.set_up(svc, self.paths, roots=[self.steam])
+            self.assertEqual((first.steam_added, len(sent)), ("requested", 1))
+            app = streaming.set_up(svc, self.paths, roots=[self.steam], better_xcloud=True, fetch=self._fake_bx)
+            self.assertEqual(len(sent), 1)  # the shortcut Steam has runs the same launcher: a second is a duplicate
+            self.assertEqual((app.steam_added, app.steam_requested_at), ("requested", first.steam_requested_at))
+            self.assertIn("load-extension", Path(app.launcher).read_text())
+        finally:
+            core.request_steam_add, core.STEAM_ADD_WAIT = orig
+
     def test_a_bad_better_xcloud_download_is_refused(self):
         with self.assertRaises(core.InstallError):
             streaming.set_up(streaming.service("xbox-cloud"), self.paths, roots=[self.steam], better_xcloud=True,

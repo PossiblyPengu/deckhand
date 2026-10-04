@@ -862,6 +862,7 @@ class App:
     steam_requested_at: float = 0.0  # when it was handed to the running Steam (steam_added == "requested")
     kind: str = "program"  # "program" (a Windows program in its own prefix), "stream" (streaming.py), "store", "addon"
     options: list[str] = field(default_factory=list)  # e.g. "better-xcloud" for Xbox Cloud Gaming
+    dirs_known: bool = False  # extra_dirs was worked out when it was installed (older records: guess_program_dir)
 
     @property
     def runtime(self) -> Runtime:
@@ -1453,6 +1454,7 @@ class Installer:
             icon=icon,
         )
         app.extra_dirs = [str(d) for d in program_dirs(Path(app.exe), pending.new_dirs)]
+        app.dirs_known = True  # (none found: nothing outside the prefix is the program's to delete)
         chosen = next((c for c in pending.candidates if c.exe.resolve() == Path(app.exe)), None)
         if chosen is not None:
             app.args = list(chosen.args)
@@ -1623,14 +1625,19 @@ def program_dirs(exe: Path, new_dirs: Iterable[Path], home: Path | None = None) 
 
 def guess_program_dir(app: App, home: Path | None = None) -> Path | None:
     """For a program recorded before 4.1.1 without its folder on D: (its folder already existed when it
-    was installed): the folder right under home (or under ~/Games and the like) that holds its .exe."""
+    was installed): the folder right under home (or under ~/Games and the like) that holds its .exe.
+    Never for a program recorded since: no folder then means none is its own (say, an .exe the user picked
+    from a folder they already had)."""
     home = (home or Path.home()).resolve()
-    exe = Path(app.exe)
-    if app.kind != "program" or app.extra_dirs or not app.prefix or exe.is_relative_to(app.prefix):
+    exe = Path(app.exe).resolve()
+    if (app.kind != "program" or app.extra_dirs or app.dirs_known or not app.prefix
+            or exe.is_relative_to(Path(app.prefix).resolve())):
         return None
     try:
-        rel = exe.resolve().relative_to(home).parts
+        rel = exe.relative_to(home).parts
     except ValueError:
+        return None
+    if rel and rel[0].startswith("."):  # ~/.local and the like: never a program's folder
         return None
     if rel and rel[0].lower() in _PROTECTED_HOME_DIRS | _GENERIC_FOLDERS:
         folder = home / rel[0] / rel[1] if len(rel) >= 3 else None
@@ -1645,8 +1652,10 @@ _PROTECTED_HOME_DIRS = {"downloads", "desktop", "documents", "music", "pictures"
 
 def safe_extra_dirs(app: App, home: Path | None = None) -> list[Path]:
     """The program folders outside its prefix that uninstall may delete: existing, inside the home
-    folder, and never the home folder itself or a standard folder like Downloads."""
+    folder, and never the home folder itself, a standard folder like Downloads, anything in a hidden
+    folder (~/.local…: installs never go there) or a folder holding the prefix."""
     home = (home or Path.home()).resolve()
+    prefix = Path(app.prefix).resolve() if app.prefix else None
     out = []
     for d in app.extra_dirs:
         p = Path(d)
@@ -1655,7 +1664,9 @@ def safe_extra_dirs(app: App, home: Path | None = None) -> list[Path]:
         except OSError:
             continue
         if (r.is_dir() and r.is_relative_to(home) and r != home
-                and not (r.parent == home and r.name.lower() in _PROTECTED_HOME_DIRS)):
+                and not (r.parent == home and r.name.lower() in _PROTECTED_HOME_DIRS)
+                and not r.relative_to(home).parts[0].startswith(".")
+                and not (prefix is not None and prefix.is_relative_to(r))):
             out.append(r)
     return out
 

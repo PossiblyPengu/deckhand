@@ -790,6 +790,8 @@ class TestInstallFlow(Env):
         self.assertIsNone(core.guess_program_dir(app, h))
         app.extra_dirs, app.exe = [], str(pfx / "pfx/drive_c/Game/Game.exe")  # on C:: nothing outside
         self.assertIsNone(core.guess_program_dir(app, h))
+        app.exe, app.dirs_known = str(game / "Game.exe"), True  # recorded since: no folder is its own
+        self.assertIsNone(core.guess_program_dir(app, h))
 
     def test_uninstall_never_deletes_outside_home_or_standard_folders(self):
         outside = self.tmp / "elsewhere"
@@ -801,6 +803,25 @@ class TestInstallFlow(Env):
         core.uninstall(app, self.paths, roots=[self.steam])
         self.assertTrue(outside.exists())
         self.assertTrue((self.home / "Downloads" / "keep.txt").exists())
+
+    def test_a_home_reached_through_a_symlink_never_turns_into_a_folder_to_delete(self):
+        real = self.tmp / "var-home"
+        self.home.rename(real)
+        self.home.symlink_to(real)  # like /home → /var/home: $HOME isn't the resolved path
+        compat = self.home / ".local/share/deckhand/prefixes/game"
+        exe = compat / "pfx/drive_c/Game/Game.exe"
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b"MZ")
+        app = core.App("game", "Game", str(exe.resolve()), str(compat), "P", "proton", "/p")
+        self.assertIsNone(core.guess_program_dir(app))  # it's on C:, inside its prefix
+        # Hidden folders (installs never go there) and folders holding the prefix are never deleted either.
+        app.extra_dirs = [str(self.home / ".local/share"), str(self.home / ".local/share/deckhand"),
+                          str(self.home / ".local")]
+        self.assertEqual(core.safe_extra_dirs(app), [])
+        mine = self.home / "Games/Game"
+        mine.mkdir(parents=True)
+        app.extra_dirs = [str(mine)]
+        self.assertEqual(core.safe_extra_dirs(app), [mine.resolve()])
 
     def test_in_steam_after_removal_in_steam(self):
         job = self.job()

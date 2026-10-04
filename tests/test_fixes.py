@@ -80,6 +80,10 @@ class TestFixes(Env):
         self.assertEqual([f.id for f in offered], ["vcrun", "dotnet8", "d3dx9"])  # (3.1 isn't offered any more)
         self.assertIn("/8.0/windowsdesktop-runtime-win-x64.exe", offered[1].files[0][0])
         self.assertEqual(core.pe_machine(exe), "x64")
+        # A file that isn't laid out like one is skipped (this runs on the UI thread: never raise).
+        (exe.parent / "Odd.runtimeconfig.json").write_text(json.dumps({"runtimeOptions": None}))
+        (exe.parent / "Odder.runtimeconfig.json").write_text(json.dumps({"runtimeOptions": ["x"]}))
+        self.assertEqual(fixes.dotnet_needed(exe), [3, 8])
 
     def test_a_download_that_is_not_an_installer_is_refused(self):
         app = self.installed()

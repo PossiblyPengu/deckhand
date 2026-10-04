@@ -56,6 +56,8 @@ def dotnet_needed(exe: Path) -> list[int]:
             opts = json.loads(f.read_text(encoding="utf-8-sig")).get("runtimeOptions", {})
         except (OSError, ValueError, AttributeError):
             continue
+        if not isinstance(opts, dict):
+            continue
         frameworks = opts.get("frameworks") or ([opts["framework"]] if isinstance(opts.get("framework"), dict) else [])
         for fw in frameworks:
             if isinstance(fw, dict) and fw.get("name") in ("Microsoft.NETCore.App", "Microsoft.WindowsDesktop.App"):

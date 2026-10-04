@@ -413,6 +413,7 @@ def set_up(svc: Service, paths: core.Paths, status: Callable[[str], None] = lamb
     app.installed_at = time.time()
     core.use_logo(app, paths, svc.id)
     core.write_desktop_entry(app)
-    core.add_to_steam(app, roots)
+    if core.steam_state(app, roots) != "sent":  # (the running Steam has it, unsaved: again would be a duplicate)
+        core.add_to_steam(app, roots)
     core.Library(paths).upsert(app)
     return app

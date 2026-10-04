@@ -927,6 +927,50 @@ class TestWindow(Env):
         self.assertFalse(prefix.exists())
         self.assertIs(self.win.stack.currentWidget(), self.win.home)
 
+    def test_the_menu_never_leaves_an_install_behind(self):
+        from deckhand import updater
+        look_again = 5  # ☰ Menu → Look for installers again
+        os.environ.update(FAKE_NOTHING="1", FAKE_SLEEP="1")
+        self.win.start_install(self.add_installer("Tool.exe", 10))
+        self.answers = [look_again]
+        self.win.open_menu()  # while the installer runs: Cancel and "Installer is done" must stay in reach
+        during = self.win.stack.currentWidget()
+        self.wait_for(lambda: self.win.pending is not None)
+        self.assertIs(during, self.win.progress)
+        self.assertIs(self.win.stack.currentWidget(), self.win.pick)
+        pending = self.win.pending
+        self.answers = [look_again]
+        self.win.open_menu()
+        self.assertIs(self.win.stack.currentWidget(), self.win.pick)
+        # An update, or another installer handed over by Open With, waits until this one is finished.
+        orig = updater.self_path
+        updater.self_path = lambda: self.tmp / "deckhand"
+        try:
+            self.win.update_info = updater.Update("9.0.0", "http://localhost:9/x", "0" * 64)
+            self.win.start_update()
+        finally:
+            updater.self_path = orig
+        self.win.open_files([str(self.add_installer("Other Setup.exe", 10))])
+        self.assertIs(self.win.stack.currentWidget(), self.win.pick)
+        self.assertIsNone(self.win.update_thread)
+        self.assertIsNone(self.win.thread)
+        self.assertIs(self.win.pending, pending)
+
+    def test_a_program_picked_outside_the_install_keeps_its_folder(self):
+        os.environ["FAKE_NOTHING"] = "1"
+        own = self.home / "Emulation/roms/windows/Portable Game"  # the user's, from before the install
+        own.mkdir(parents=True)
+        (own / "game.exe").write_bytes(b"MZ")
+        self.win.start_install(self.add_installer("Tool.exe", 10))
+        self.wait_for(lambda: self.win.stack.currentWidget() is self.win.pick)
+        self.win.finish_install(own / "game.exe", "Portable Game")  # Browse… → Home
+        self.wait_for(lambda: self.win.stack.currentWidget() is self.win.done)
+        self.win.refresh_launchers()  # (what every start does)
+        app = core.Library(self.paths).load()[0]
+        self.assertEqual(app.extra_dirs, [])
+        core.uninstall(app, self.paths, roots=[self.steam])
+        self.assertTrue((own / "game.exe").is_file())
+
     def test_sheet_is_an_overlay_that_confines_focus(self):
         from deckhand.widgets import Sheet
         self.win.go_home()
