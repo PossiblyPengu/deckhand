@@ -1,5 +1,5 @@
 {
-  "version": "4.2.3",
-  "sha256": "43e38acf3164c773891d0479970eb88f9fe7171d5240c467facdc0dd8ea747e9",
-  "notes": "Apps from Flathub are now installed the way Discover does it, so Discover keeps them up to date. Uninstalling a program also removes its folder on D: when that folder existed before the install, and the DirectX log is no longer shown twice."
+  "version": "4.2.4",
+  "sha256": "67e747fdcbe9b7d3f7f24af603c5186fac5fee394303b27da9128f3a08ae122c",
+  "notes": "Uninstalling never deletes a folder Deckhand didn't install: a folder you picked a program from, or anything in a hidden folder such as ~/.local. Turning Better xCloud on or off no longer adds a second Steam shortcut, the menu no longer leaves a running install out of reach, and Fix it no longer closes Deckhand on some .NET programs."
 }
