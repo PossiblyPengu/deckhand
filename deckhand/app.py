@@ -1347,7 +1347,8 @@ class AddonsPage(Page):
         lay.setContentsMargins(*PAGE_MARGINS)
         lay.setSpacing(12)
         lay.addWidget(label("Add-ons", "h1"))
-        lay.addWidget(label("Popular Deck add-ons and tools, from their official sources. Decky Loader and EmuDeck set "
+        lay.addWidget(label("Arcadia, Deckhand's sister app for retro games, and popular Deck add-ons and tools, from "
+                            "their official sources. Decky Loader and EmuDeck set "
                             "themselves up in Desktop Mode; apps from Flathub are installed the way Discover does it, so Discover keeps them up to date.",
                             "dim"))
         self.list = QListWidget()
@@ -1404,7 +1405,9 @@ class AddonsPage(Page):
         a = addons.addon(item.data(Qt.ItemDataRole.UserRole))
         if a is None or self.win.busy_with("addon"):
             return
-        if a.id == "decky":
+        if a.id == "arcadia":
+            self._arcadia(a)
+        elif a.id == "decky":
             self._decky(a)
         elif a.id == "emudeck":
             self._emudeck(a)
@@ -1541,6 +1544,91 @@ class AddonsPage(Page):
 
         self.win.run_worker(run, finished, self._failed("GE-Proton"), status=self.status.setText, kind="addon",
                             progress=self.show_progress)
+
+    # ── Arcadia (the sister app) ─────────────────────────────────────
+
+    def _arcadia(self, a: addons.Addon) -> None:
+        if addons.arcadia_app() is None:
+            if Sheet.ask(self, "Arcadia", "Arcadia is Deckhand's sister app for retro games: pick a console, then a "
+                         "game, and it starts in the right emulator. Its Setup screen sorts your ROMs, installs the "
+                         "emulators, checks BIOS files and syncs saves.\n\nDeckhand downloads the newest Arcadia from "
+                         "its GitHub releases into your Applications folder, checks it, and adds it to Steam.",
+                         ("Download Arcadia", "Cancel")) == 0:
+                self._download_arcadia(a)
+            return
+        app = self.apps.get(a.id)
+        in_steam = app is not None and self.steam.get(a.id) in ("in", "sent")
+        actions = [("Open Arcadia", lambda: self._open_arcadia()),
+                   ("Get the newest Arcadia", lambda: self._download_arcadia(a)),
+                   ("Remove from Steam", lambda: self.win.uninstall(app)) if in_steam else
+                   ("Add to Steam", lambda: self._set_up_arcadia(a)),
+                   ("Uninstall", lambda: self._uninstall_arcadia(a)),
+                   ("Close", None)]
+        where = "It's in your Steam library." if in_steam else "It's not in your Steam library yet."
+        choice = Sheet.ask(self, "Arcadia", f"Arcadia is installed. {where}", tuple(t for t, _f in actions),
+                           primary=len(actions) - 1, danger=(3,))
+        if 0 <= choice < len(actions) and actions[choice][1] is not None:
+            actions[choice][1]()
+
+    def _download_arcadia(self, a: addons.Addon) -> None:
+        self.status.setText("Downloading Arcadia…")
+
+        def run(status):
+            report = getattr(status, "progress", lambda pct: None)
+
+            def progress(done: int, total: int) -> None:
+                if total:
+                    status(f"Downloading Arcadia…  {core.human_size(done)} of {core.human_size(total)}")
+                    report(done * 100 // total)
+            report(-1)
+            version = addons.download_arcadia(progress)
+            status("Adding Arcadia to Steam…")
+            report(-1)
+            return version, addons.set_up_arcadia(self.win.paths)
+
+        def finished(result) -> None:
+            version, app = result
+            self.status.setText("")
+            self.show_progress(None)
+            self.win.paths.remember(arcadia_version=version)
+            self.win._write_art(app, artwork.load_icon(app.icon))
+            self.win._say_added(app, "Add-ons → Arcadia")
+            self.refresh()
+
+        self.win.run_worker(run, finished, self._failed("Arcadia"), status=self.status.setText, kind="addon",
+                            progress=self.show_progress)
+
+    def _set_up_arcadia(self, a: addons.Addon) -> None:
+        def finished(app: core.App) -> None:
+            self.win._write_art(app, artwork.load_icon(app.icon))
+            self.win._say_added(app, "Add-ons → Arcadia")
+            self.refresh()
+
+        self.win.run_worker(lambda _s: addons.set_up_arcadia(self.win.paths), finished, self._failed("Arcadia"),
+                            kind="addon")
+
+    def _uninstall_arcadia(self, a: addons.Addon) -> None:
+        if Sheet.ask(self, "Uninstall Arcadia?", "Removes Arcadia and its Steam shortcut. Your games, saves and "
+                     "Arcadia's settings (in ~/Arcadia) stay, in case you install it again.", ("Uninstall", "Keep"),
+                     primary=1, danger=(0,)) != 0:
+            return
+
+        def finished(left_in_steam: bool) -> None:
+            self.win.flash("Arcadia uninstalled")
+            self.refresh()
+            if left_in_steam:
+                Sheet.ask(self, "Arcadia uninstalled", "Its shortcut is still in your Steam library: Deckhand "
+                          "doesn't change Steam's list while Steam is open.\n\n" + REMOVE_IN_STEAM, ("Close",))
+
+        self.win.run_worker(lambda _s: addons.uninstall_arcadia(self.apps.get(a.id), self.win.paths), finished,
+                            self._failed("Arcadia"), kind="addon")
+
+    def _open_arcadia(self) -> None:
+        try:
+            addons.open_arcadia()
+            self.win.flash("Arcadia is opening…")
+        except (OSError, core.InstallError) as e:
+            Sheet.ask(self, "Arcadia", str(e), ("Close",))
 
     def _decky(self, a: addons.Addon) -> None:
         installed = addons.decky_version() is not None

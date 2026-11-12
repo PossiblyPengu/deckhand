@@ -1,7 +1,9 @@
 """Deck add-ons from their official sources.
 
 Nothing is repackaged. Decky's own installer (what decky.xyz links to) is downloaded and run as
-is; it asks for the admin password in its own windows, so it needs Desktop Mode. EmuDeck is
+is; it asks for the admin password in its own windows, so it needs Desktop Mode. Arcadia, Deckhand's
+sister app for retro games, is its AppImage from its GitHub releases, put in ~/Applications and added to
+Steam with a launcher of Deckhand's. EmuDeck is
 downloaded the way its own install script (what emudeck.com runs) does it: the latest
 EmuDeck.AppImage from its GitHub releases, into ~/Applications, and opened from there. GE-Proton
 comes from its GitHub releases (proton.py). The rest are apps from Flathub, installed for this user
@@ -10,9 +12,13 @@ Steam, as Apps with kind "addon".
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import shlex
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -21,6 +27,8 @@ from . import core, streaming, updater
 
 DECKY_INSTALLER_URL = ("https://github.com/SteamDeckHomebrew/decky-installer/releases/latest/download/"
                        "user_install_script.sh")
+ARCADIA_RELEASE_API = "https://api.github.com/repos/PossiblyPengu/arcadia/releases/latest"
+ARCADIA_APPIMAGE = "Arcadia_x64_SteamDeck.AppImage"
 EMUDECK_RELEASE_API = "https://api.github.com/repos/EmuDeck/emudeck-electron/releases/latest"
 
 
@@ -41,6 +49,8 @@ class Addon:
 
 
 ADDONS = (
+    Addon("arcadia", "Arcadia", "Deckhand's sister app: your retro games, with emulators, BIOS check and cloud saves",
+          "GitHub", "#cdbdf0"),
     Addon("decky", "Decky Loader", "Plugins for the Quick Access menu", "decky.xyz", "#6b35c8"),
     Addon("emudeck", "EmuDeck", "Sets up emulators and adds your retro games to Steam", "emudeck.com", "#d6313f"),
     Addon("retrodeck", "RetroDECK", "Emulators and your retro games in one app", "Flathub", "#8f5ae8",
@@ -81,6 +91,19 @@ def decky_version(home: Path | None = None) -> str | None:
         return "installed"
 
 
+def arcadia_app(home: Path | None = None) -> Path | None:
+    """Arcadia's AppImage in ~/Applications (the name its releases use, else any Arcadia*.AppImage there)."""
+    apps = (home or Path.home()) / "Applications"
+    if (apps / ARCADIA_APPIMAGE).is_file():
+        return apps / ARCADIA_APPIMAGE
+    try:
+        found = sorted(p for p in apps.iterdir() if p.is_file() and p.name.lower().startswith("arcadia")
+                       and p.name.lower().endswith(".appimage"))
+    except OSError:
+        return None
+    return found[0] if found else None
+
+
 def emudeck_app(home: Path | None = None) -> Path | None:
     p = (home or Path.home()) / "Applications/EmuDeck.AppImage"
     return p if p.is_file() else None
@@ -100,6 +123,8 @@ def status(a: Addon, home: Path | None = None, installed: set[str] | None = None
 
         have = proton.installed()
         return f"Installed ({have[0]})" if have else "Not installed"
+    if a.id == "arcadia":
+        return "Installed" if arcadia_app(home) else "Not installed"
     if a.id == "decky":
         v = decky_version(home)
         return f"Installed ({v})" if v and v != "installed" else ("Installed" if v else "Not installed")
@@ -148,6 +173,97 @@ def run_decky_installer(script: Path, log: Callable[[str], None] = lambda s: Non
             if line.strip():
                 log(line.rstrip())
     return proc.wait()
+
+
+# ── Arcadia ──────────────────────────────────────────────────────────────────
+
+
+def arcadia_release(fetch: Callable[[str], bytes] | None = None) -> tuple[str, str, str]:
+    """(version, AppImage URL, sha256 or "") of Arcadia's latest release. GitHub lists each file's sha256."""
+    data = json.loads((fetch or (lambda url: updater.fetch(url, timeout=30)))(ARCADIA_RELEASE_API))
+    asset = next((a for a in data.get("assets", []) if isinstance(a, dict) and a.get("name") == ARCADIA_APPIMAGE),
+                 None)
+    if not asset or not asset.get("browser_download_url"):
+        raise core.InstallError("Couldn't find Arcadia's Steam Deck download in its latest release. Try again later.")
+    digest = str(asset.get("digest") or "")
+    sha = digest.split(":", 1)[1].lower() if digest.startswith("sha256:") else ""
+    return str(data.get("tag_name", "")).lstrip("v"), str(asset["browser_download_url"]), sha
+
+
+def download_arcadia(progress: Callable[[int, int], None] = lambda done, total: None,
+                     fetch: Callable[[str], bytes] | None = None, opener=None, home: Path | None = None) -> str:
+    """Download Arcadia's latest AppImage into ~/Applications (over the one there, once it's whole and
+    checked). Returns its version."""
+    version, url, sha = arcadia_release(fetch)
+    dest = arcadia_app(home) or (home or Path.home()) / "Applications" / ARCADIA_APPIMAGE
+
+    def check(head: bytes) -> None:
+        if not head.startswith(b"\x7fELF"):
+            raise core.InstallError("The Arcadia download was damaged. Try again.")
+
+    digest = hashlib.sha256()
+    new = updater.download_to(url, dest.with_name(f".{dest.name}.new"), progress, opener, digest=digest, check=check)
+    if sha and digest.hexdigest() != sha:
+        new.unlink(missing_ok=True)
+        raise core.InstallError("The Arcadia download didn't match its checksum. Try again.")
+    new.chmod(0o755)
+    os.replace(new, dest)
+    return version
+
+
+def arcadia_launcher(paths: core.Paths, appimage: Path) -> Path:
+    paths.launchers.mkdir(parents=True, exist_ok=True)
+    script = paths.launchers / "addon-arcadia.sh"
+    log = paths.logs / "addon-arcadia-launch.log"
+    q = shlex.quote
+    script.write_text("\n".join(["#!/bin/bash", "# Deckhand: Arcadia",
+                                 f"{{ mkdir -p {q(str(log.parent))} && exec >{q(str(log))} 2>&1; }} || true",
+                                 f'exec {q(str(appimage))} "$@"']) + "\n", encoding="utf-8")
+    script.chmod(0o755)
+    return script
+
+
+def set_up_arcadia(paths: core.Paths, roots=None, steam: bool = True) -> core.App:
+    """Arcadia's launcher, menu entry and (if `steam`) Steam shortcut — once. An Arcadia you added to Steam
+    yourself counts: no second shortcut."""
+    appimage = arcadia_app()
+    if appimage is None:
+        raise core.InstallError("Arcadia isn't downloaded yet.")
+    library = core.Library(paths)
+    app = next((a for a in library.load() if a.id == "addon-arcadia"), None) or core.App(
+        id="addon-arcadia", name="Arcadia", exe="", prefix="", runtime_name="", runtime_kind="", runtime_path="",
+        kind="addon")
+    app.exe = str(appimage)
+    app.launcher = str(arcadia_launcher(paths, appimage))
+    app.installed_at = time.time()
+    core.use_logo(app, paths, "arcadia")
+    core.write_desktop_entry(app)
+    if steam:
+        own = core.find_shortcut(str(appimage), roots)
+        if own:
+            app.steam_appid, app.steam_added = own, "live"
+        elif core.steam_state(app, roots) != "sent":
+            core.add_to_steam(app, roots)
+    library.upsert(app)
+    return app
+
+
+def uninstall_arcadia(app: core.App | None, paths: core.Paths, roots=None) -> bool:
+    """Arcadia's AppImage, launcher and shortcut go; its settings (~/Arcadia) and your games stay.
+    True if the shortcut was left for you to remove in Steam."""
+    left = core.uninstall(app, paths, roots=roots) if app is not None else False
+    appimage = arcadia_app()
+    for f in (appimage, appimage.with_name(appimage.name + ".previous")) if appimage else ():
+        f.unlink(missing_ok=True)
+    return left
+
+
+def open_arcadia(home: Path | None = None) -> None:
+    app = arcadia_app(home)
+    if app is None:
+        raise core.InstallError("Arcadia isn't downloaded yet.")
+    subprocess.Popen([str(app)], env=core.clean_env(), start_new_session=True, cwd=str(app.parent),
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
 
 
 # ── EmuDeck ──────────────────────────────────────────────────────────────────

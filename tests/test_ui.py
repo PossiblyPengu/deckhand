@@ -592,12 +592,15 @@ class TestWindow(Env):
         page = self.win.addons
         self.assertIs(self.win.stack.currentWidget(), page)
         self.assertTrue(self.win.stations["addons"].isChecked())
-        self.assertIn("Decky Loader", page.list.item(0).text())
-        self.assertIn("Not installed", page.list.item(1).text())
+        ids = [a.id for a in addons.ADDONS]
+        decky, emudeck = page.list.item(ids.index("decky")), page.list.item(ids.index("emudeck"))
+        self.assertIn("Arcadia", page.list.item(0).text())  # the sister app comes first
+        self.assertIn("Decky Loader", decky.text())
+        self.assertIn("Not installed", emudeck.text())
         # Game Mode: Decky's installer needs Desktop Mode.
         os.environ["XDG_CURRENT_DESKTOP"] = "gamescope"
         self.answers = [1]
-        page._activate(page.list.item(0))
+        page._activate(decky)
         self.assertEqual(self.asked[-1], "Decky Loader")
         # EmuDeck: download (network faked), then it's offered to open — in Desktop Mode only.
         orig_release, orig_open = addons.emudeck_release, addons.updater._open
@@ -605,11 +608,11 @@ class TestWindow(Env):
         addons.updater._open = lambda url, timeout, headers=None: FakeResponse(b"\x7fELF" + b"\0" * 100)
         try:
             self.answers = [0, 1]  # Download EmuDeck; (Game Mode) not now
-            page._activate(page.list.item(1))
+            page._activate(page.list.item(ids.index("emudeck")))
             self.wait_for(lambda: (self.home / "Applications/EmuDeck.AppImage").exists())
             self.wait_for(lambda: not self.win.busy_with_quietly("addon"))  # (then it offers to open it)
             self.assertEqual(self.asked[-1], "EmuDeck")
-            self.wait_for(lambda: "Downloaded" in page.list.item(1).text())
+            self.wait_for(lambda: "Downloaded" in page.list.item(ids.index("emudeck")).text())
         finally:
             addons.emudeck_release, addons.updater._open = orig_release, orig_open
 

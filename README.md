@@ -64,6 +64,13 @@ close button. Press STEAM + X there for the on-screen keyboard (Deckhand starts 
 isn't running, since the keyboard is Steam's). Picking a service again offers to remove it (the browser or app
 stays).
 
+## Sister app: Arcadia
+
+Deckhand and [Arcadia](https://github.com/PossiblyPengu/arcadia) are a pair for getting started on a Steam Deck.
+Deckhand does Windows programs and games, game stores, streaming and Deck add-ons; Arcadia does retro games (ROMs,
+emulators, BIOS files and emulator saves). Each installs the other: Arcadia is first in Deckhand's **Add-ons**, and
+Arcadia's Setup screen has a "Windows games and stores" step that installs or opens Deckhand.
+
 ## Add-ons
 
 The **Add-ons** section installs popular Deck add-ons and tools from their official sources. Each shows whether it's
@@ -71,6 +78,7 @@ already installed:
 
 | Add-on | How |
 | :--- | :--- |
+| **Arcadia** (github.com/PossiblyPengu/arcadia) | Deckhand's sister app, for retro games: consoles and games on a controller-first launcher, with its own Setup screen that sorts ROMs, installs emulators, checks BIOS files and syncs saves. Downloads the Steam Deck AppImage from Arcadia's latest GitHub release into `~/Applications`, checks it against GitHub's checksum, and adds it to Steam (with artwork) and the app menu. An Arcadia already in Steam gets no second shortcut. Picking it again opens, updates or uninstalls it; uninstalling keeps your games and Arcadia's settings in `~/Arcadia`. |
 | **Decky Loader** (decky.xyz) | Downloads Decky's own installer from github.com/SteamDeckHomebrew and opens it. It asks for your admin password (or offers a temporary one) and lets you install, update or uninstall. |
 | **EmuDeck** (emudeck.com) | Downloads the latest EmuDeck from its GitHub releases into `~/Applications`, the way EmuDeck's own installer does, and opens it. |
 | **GE-Proton** | Proton with extra fixes. Downloads the newest release from its GitHub releases, checks it against its checksum and puts it with Steam's compatibility tools. Deckhand uses it for new installs straight away; for a Steam game, restart Steam and pick it under ⚙ → Properties → Compatibility. Picking it again updates it. |
