@@ -138,6 +138,7 @@ class MainWindow(QMainWindow):
         mark.setContentsMargins(24, 0, 0, 18)
         v.addWidget(mark)
         self.stations: dict[str, QPushButton] = {}
+        self.station_glyphs: dict[str, str] = {}
         for key, text, glyph in (("start", "Start", "flag"), ("install", "Install", "download"), ("stores", "Stores", "bag"),
                                  ("stream", "Stream", "signal"), ("addons", "Add-ons", "plus"),
                                  ("installed", "Installed", "stack")):
@@ -150,6 +151,7 @@ class MainWindow(QMainWindow):
             b.clicked.connect(lambda _c=False, k=key: self.switch_section(k))
             v.addWidget(b)
             self.stations[key] = b
+            self.station_glyphs[key] = glyph
         v.addStretch(1)
         menu = QPushButton("Menu")
         menu.setObjectName("station")
@@ -208,6 +210,8 @@ class MainWindow(QMainWindow):
         current = self.section_of(self.stack.currentWidget())
         for key, b in self.stations.items():
             b.setChecked(key == current)
+            # (the chosen section is a pill: its icon must read on the pill, not on the rail)
+            b.setIcon(glyph_icon(self.station_glyphs[key], theme.ON_PILL if key == current else theme.TEXT_DIM))
 
     def _focus_changed(self, _old, _new) -> None:
         self.update_hints()
