@@ -1110,6 +1110,39 @@ def human_size(n: int) -> str:
     return f"{n} B"
 
 
+def human_duration(seconds: float) -> str:
+    seconds = int(seconds + 0.5)
+    if seconds < 60:
+        return f"{seconds} s"
+    if seconds < 3600:
+        return f"{seconds // 60} min" + (f" {seconds % 60} s" if seconds < 600 and seconds % 60 else "")
+    return f"{seconds // 3600} h {seconds % 3600 // 60} min"
+
+
+class Transfer:
+    """The words for a download's progress: "Downloading X…  120 MB of 480 MB · 8 MB/s · 45 s left".
+    The speed is the average since this object saw its first update, so it settles quickly and doesn't jump; the
+    time left is only shown once there is a speed to base it on (a resumed download isn't counted as fast)."""
+
+    def __init__(self, label: str, clock: Callable[[], float] = time.monotonic):
+        self.label, self.clock = label, clock
+        self.start: tuple[float, int] | None = None
+
+    def text(self, done: int, total: int = 0) -> str:
+        now = self.clock()
+        if self.start is None or done < self.start[1]:
+            self.start = (now, done)  # (a new try starts from the beginning: measure afresh)
+        t0, d0 = self.start
+        out = f"{self.label}  {human_size(done)}" + (f" of {human_size(total)}" if total else "")
+        elapsed = now - t0
+        if elapsed >= 2 and done > d0:
+            speed = (done - d0) / elapsed
+            out += f" · {human_size(int(speed))}/s"
+            if total and done < total:
+                out += f" · {human_duration((total - done) / speed)} left"
+        return out
+
+
 def write_launcher(
     app: App,
     paths: Paths,

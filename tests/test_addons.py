@@ -216,3 +216,76 @@ class AddArcadiaCliTests(unittest.TestCase):
         rc, text = self.run_cli(boom)
         self.assertEqual(rc, 1)
         self.assertIn("no network", text)
+
+
+NEXUS_BODY = b"\x7fELF" + b"\0" * 4000
+
+
+def nexus_release(body: bytes = NEXUS_BODY) -> dict:
+    import hashlib
+    name = "Nexus-Launcher-0.5.0-x86_64.AppImage"
+    return {"tag_name": "v0.5.0", "assets": [
+        {"name": "Nexus-Launcher-0.5.0-arm64.AppImage", "browser_download_url": "https://example.invalid/arm"},
+        {"name": name, "browser_download_url": "https://example.invalid/" + name},
+        {"name": name + ".sha512sum", "browser_download_url": "https://example.invalid/sum"},
+        {"name": "Xodus-Nexus-0.5.0-x86_64.AppImage", "browser_download_url": "https://example.invalid/old"}],
+        "sum": f"{hashlib.sha512(body).hexdigest()}  {name}\n"}
+
+
+def nexus_fetch(body: bytes = NEXUS_BODY):
+    rel = nexus_release(body)
+    return lambda url: rel["sum"].encode() if url.endswith("/sum") else json.dumps(rel).encode()
+
+
+class TestNexus(Env):
+    def test_parse_sha512sum(self):
+        h = "ab" * 64
+        self.assertEqual(addons.parse_sha512sum(f"{h}  file.AppImage\n", "file.AppImage"), h)
+        self.assertEqual(addons.parse_sha512sum(f"{h} *file.AppImage", "file.AppImage"), h)
+        self.assertEqual(addons.parse_sha512sum(f"{h}  other\n", "file.AppImage"), "")
+        self.assertEqual(addons.parse_sha512sum("garbage", "file.AppImage"), "")
+
+    def test_release_picks_the_new_name_for_this_arch_with_its_checksum(self):
+        version, url, sha = addons.nexus_release(nexus_fetch(), arch="x86_64")
+        self.assertEqual((version, url.endswith("Nexus-Launcher-0.5.0-x86_64.AppImage")), ("0.5.0", True))
+        self.assertEqual(len(sha), 128)
+        self.assertTrue(addons.nexus_release(nexus_fetch(), arch="arm64")[1].endswith("/arm"))
+        with self.assertRaises(core.InstallError):
+            addons.nexus_release(lambda u: json.dumps({"tag_name": "v1", "assets": []}).encode())
+
+    def test_downloaded_checked_and_added_to_steam_once(self):
+        a = addons.addon("nexus")
+        self.assertEqual(addons.status(a), "Not installed")
+        version = addons.download_nexus(fetch=nexus_fetch(), opener=lambda url: FakeResponse(NEXUS_BODY))
+        self.assertEqual(version, "0.5.0")
+        appimage = self.home / "Applications" / addons.NEXUS_APPIMAGE
+        self.assertEqual(appimage.read_bytes(), NEXUS_BODY)
+        self.assertTrue(os.access(appimage, os.X_OK))
+        self.assertEqual(addons.status(a), "Installed")
+        app = addons.set_up_nexus(self.paths, roots=[self.steam])
+        self.assertEqual((app.id, app.kind, app.exe), ("addon-nexus", "addon", str(appimage)))
+        self.assertTrue(core.in_steam(app, [self.steam]))
+        addons.set_up_nexus(self.paths, roots=[self.steam])
+        self.assertEqual(len(core.steam_shortcuts([self.steam])), 1)
+        self.assertFalse(addons.uninstall_nexus(app, self.paths, roots=[self.steam]))
+        self.assertFalse(appimage.exists())
+        self.assertEqual(core.steam_shortcuts([self.steam]), [])
+
+    def test_a_wrong_checksum_leaves_nothing(self):
+        with self.assertRaises(core.InstallError):
+            addons.download_nexus(fetch=nexus_fetch(), opener=lambda url: FakeResponse(b"\x7fELF" + b"1" * 50))
+        self.assertEqual(list((self.home / "Applications").iterdir()), [])
+
+    def test_the_projects_own_install_is_found_and_updated_in_place(self):
+        own = self.home / ".local/opt/xodus-nexus"
+        own.mkdir(parents=True)
+        mine = own / addons.NEXUS_APPIMAGE
+        mine.write_bytes(b"\x7fELFold")
+        self.assertEqual(addons.nexus_app(), mine)
+        addons.download_nexus(fetch=nexus_fetch(), opener=lambda url: FakeResponse(NEXUS_BODY))
+        self.assertEqual(mine.read_bytes(), NEXUS_BODY)
+        self.assertFalse((self.home / "Applications").exists() and any((self.home / "Applications").iterdir()))
+        # Uninstalling from Deckhand never deletes a copy that the project's own installer made.
+        app = addons.set_up_nexus(self.paths, roots=[self.steam])
+        addons.uninstall_nexus(app, self.paths, roots=[self.steam])
+        self.assertTrue(mine.exists())

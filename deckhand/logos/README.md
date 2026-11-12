@@ -19,4 +19,5 @@ Where each one comes from (256 px at most; square ones had their corners rounded
 | `epic` | The Epic Games mark from Simple Icons (CC0), in white on a dark tile |
 | `rockstar` | Rockstar Games' own site icon (rockstargames.com) |
 | `decky`, `emudeck` | The projects' own logos (their GitHub organisations' pictures) |
+| `nexus` | Nexus Launcher's own icon (`assets/icon.png` in its repository, MIT licence) |
 | `ge-proton` | GE-Proton has no logo of its own: a tile with its name, drawn for Deckhand |

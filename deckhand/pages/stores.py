@@ -152,9 +152,11 @@ class StoresPage(Page):
         def run(status):
             report = getattr(status, "progress", lambda pct: None)
 
+            xfer = core.Transfer(f"Downloading {s.name}…")
+
             def progress(done: int, total: int) -> None:
                 if total:
-                    status(f"Downloading {s.name}…  {core.human_size(done)} of {core.human_size(total)}")
+                    status(xfer.text(done, total))
                     report(done * 100 // total)
             report(-1)
             return stores.download(s, self.win.paths, progress)

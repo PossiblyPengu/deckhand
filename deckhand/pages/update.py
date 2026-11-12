@@ -46,6 +46,7 @@ class UpdatePage(Page):
         self.notes.setText(update.notes)
         self.notes.setVisible(bool(update.notes))
         self.status.setText("Downloading…")
+        self.xfer = core.Transfer("Downloading…")
         self.bar.setRange(0, 0)
         self.cancel_btn.show()
         self.cancel_btn.setEnabled(True)
@@ -55,9 +56,9 @@ class UpdatePage(Page):
         if total:
             self.bar.setRange(0, 1000)
             self.bar.setValue(int(done * 1000 / total))
-            self.status.setText(f"Downloading…  {core.human_size(done)} of {core.human_size(total)}")
+            self.status.setText(self.xfer.text(done, total))
         else:
-            self.status.setText(f"Downloading…  {core.human_size(done)}")
+            self.status.setText(self.xfer.text(done))
 
     def on_done(self) -> None:
         self.finished = True
