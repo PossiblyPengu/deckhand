@@ -1117,6 +1117,19 @@ class TestWindow(Env):
         fw = QApplication.focusWidget()
         self.assertTrue(fw is not None and win.stores.isAncestorOf(fw))
 
+    def test_nothing_in_the_rail_is_cut_off(self):
+        from PyQt6.QtWidgets import QFrame, QLabel
+        rail = self.win.findChild(QFrame, "rail")
+        self.pump()
+        for lab in rail.findChildren(QLabel):
+            if lab.text() and lab.objectName() != "wordmark":
+                m = lab.contentsMargins()
+                need = lab.fontMetrics().horizontalAdvance(lab.text()) + m.left() + m.right()
+                self.assertLessEqual(need, rail.width(), f"'{lab.text()}' needs {need}px in a {rail.width()}px rail")
+        for b in self.win.stations.values():
+            text_w = b.fontMetrics().horizontalAdvance(b.text()) + b.iconSize().width() + 18 * 2 + 14 * 2 + 12
+            self.assertLessEqual(text_w, rail.width(), b.text())
+
     def test_there_is_no_shoulder_button_section_switching(self):
         before = self.win.stack.currentWidget()
         self.win.on_action("rb")
