@@ -694,37 +694,18 @@ class TestWindow(Env):
         self.win.confirm_install(self.add_installer("Cool Game Setup.exe", 10))
         self.assertIn("already has “Cool Game”", texts[-1])
 
-    def test_addons_page_shows_status_and_downloads_emudeck(self):
+    def test_addons_page_lists_the_add_ons_with_their_status(self):
         from deckhand import addons
-        from tests.test_addons import FakeResponse
         self.win.go_home()
         self.win.switch_section("addons")
         page = self.win.addons
         self.assertIs(self.win.stack.currentWidget(), page)
         self.assertTrue(self.win.stations["addons"].isChecked())
         ids = [a.id for a in addons.ADDONS]
-        decky, emudeck = page.list.item(ids.index("decky")), page.list.item(ids.index("emudeck"))
+        self.assertNotIn("emudeck", ids)  # (Arcadia replaces it)
         self.assertIn("Arcadia", page.list.item(0).text())  # the sister app comes first
-        self.assertIn("Decky Loader", decky.text())
-        self.assertIn("Not installed", emudeck.text())
-        # Game Mode: Decky's installer needs Desktop Mode.
-        os.environ["XDG_CURRENT_DESKTOP"] = "gamescope"
-        self.answers = [1]
-        page._activate(decky)
-        self.assertEqual(self.asked[-1], "Decky Loader")
-        # EmuDeck: download (network faked), then it's offered to open — in Desktop Mode only.
-        orig_release, orig_open = addons.emudeck_release, addons.updater._open
-        addons.emudeck_release = lambda fetch=None: ("2.4.7", "https://example.invalid/EmuDeck.AppImage")
-        addons.updater._open = lambda url, timeout, headers=None: FakeResponse(b"\x7fELF" + b"\0" * 100)
-        try:
-            self.answers = [0, 1]  # Download EmuDeck; (Game Mode) not now
-            page._activate(page.list.item(ids.index("emudeck")))
-            self.wait_for(lambda: (self.home / "Applications/EmuDeck.AppImage").exists())
-            self.wait_for(lambda: not self.win.busy_with_quietly("addon"))  # (then it offers to open it)
-            self.assertEqual(self.asked[-1], "EmuDeck")
-            self.wait_for(lambda: "Downloaded" in page.list.item(ids.index("emudeck")).text())
-        finally:
-            addons.emudeck_release, addons.updater._open = orig_release, orig_open
+        self.assertIn("Decky Loader", page.list.item(ids.index("decky")).text())
+        self.assertIn("Not installed", page.list.item(ids.index("decky")).text())
 
     def test_stores_page_installs_a_windows_store_under_its_own_name(self):
         from deckhand import stores

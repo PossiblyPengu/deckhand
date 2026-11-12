@@ -1,4 +1,4 @@
-"""Add-ons: Decky Loader and EmuDeck from their official sources (network faked)."""
+"""Add-ons: Decky Loader, Arcadia, Nexus and the rest from their official sources (network faked)."""
 import io
 import json
 import os
@@ -15,10 +15,6 @@ from tests.test_streaming import FlatpakEnv  # noqa: E402
 DECKY_SCRIPT = b"#!/bin/bash\n# Decky Installer (fake)\nmkdir -p \"$HOME/homebrew/services\"\n" \
                b"touch \"$HOME/homebrew/services/PluginLoader\"\necho v3.1.10 > \"$HOME/homebrew/services/.loader.version\"\n" \
                b"echo installed\n"
-RELEASE = {"tag_name": "v2.4.7", "assets": [{"name": "EmuDeck-2.4.7.AppImage",
-                                             "browser_download_url": "https://example.invalid/EmuDeck.AppImage"},
-                                            {"name": "latest-linux.yml", "browser_download_url": "x"}]}
-
 
 class FakeResponse(io.BytesIO):
     def __init__(self, data: bytes):
@@ -28,19 +24,14 @@ class FakeResponse(io.BytesIO):
 
 class TestAddons(Env):
     def test_status_reads_what_is_installed(self):
-        decky, emu = addons.addon("decky"), addons.addon("emudeck")
-        self.assertEqual((addons.status(decky), addons.status(emu)), ("Not installed", "Not installed"))
+        decky = addons.addon("decky")
+        self.assertEqual(addons.status(decky), "Not installed")
         services = self.home / "homebrew/services"
         services.mkdir(parents=True)
         (services / "PluginLoader").write_text("")
         self.assertEqual(addons.status(decky), "Installed")
         (services / ".loader.version").write_text("v3.1.10\n")
         self.assertEqual(addons.status(decky), "Installed (v3.1.10)")
-        (self.home / "Applications").mkdir()
-        (self.home / "Applications/EmuDeck.AppImage").write_text("")
-        self.assertEqual(addons.status(emu), "Downloaded — not set up yet")
-        (self.home / "emudeck").mkdir()
-        self.assertEqual(addons.status(emu), "Installed")
 
     def test_decky_uses_its_own_installer(self):
         urls = []
@@ -54,28 +45,6 @@ class TestAddons(Env):
     def test_a_bad_decky_download_is_refused(self):
         with self.assertRaises(core.InstallError):
             addons.fetch_decky_installer(self.tmp / "dl", lambda url: b"<html>rate limited</html>")
-
-    def test_emudeck_downloads_the_latest_appimage_into_applications(self):
-        body = b"\x7fELF" + b"\0" * 5000
-        seen = []
-        version = addons.download_emudeck(lambda d, t: seen.append((d, t)),
-                                          fetch=lambda url: json.dumps(RELEASE).encode(),
-                                          opener=lambda url: FakeResponse(body))
-        self.assertEqual(version, "2.4.7")
-        app = self.home / "Applications/EmuDeck.AppImage"
-        self.assertEqual(app.read_bytes(), body)
-        self.assertTrue(os.access(app, os.X_OK))
-        self.assertEqual(seen[-1], (len(body), len(body)))
-
-    def test_a_damaged_emudeck_download_leaves_nothing(self):
-        with self.assertRaises(core.InstallError):
-            addons.download_emudeck(fetch=lambda url: json.dumps(RELEASE).encode(),
-                                    opener=lambda url: FakeResponse(b"<html>nope</html>"))
-        self.assertEqual(list((self.home / "Applications").iterdir()), [])
-
-    def test_no_appimage_in_the_release_is_explained(self):
-        with self.assertRaises(core.InstallError):
-            addons.emudeck_release(lambda url: json.dumps({"tag_name": "v1", "assets": []}).encode())
 
 
 ARCADIA_BODY = b"\x7fELF" + b"\0" * 4000

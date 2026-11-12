@@ -35,7 +35,6 @@ No shell injection patterns anywhere (`shell=True`, `eval`, `pickle` are absent)
 | GE-Proton | SHA-512 file from the release | Good |
 | Nexus Launcher | SHA-512 file **if present** | If the file is missing or can't be read, it silently falls back to "looks like an ELF program" |
 | Arcadia add-on | GitHub's SHA-256 digest **if present** | Same silent fallback |
-| EmuDeck | ELF header only | No checksum at all |
 | Store installers, VC++/.NET fixes | HTTPS to the vendor | Vendors publish no checksums; accepted |
 | Decky installer script | Header contains "Decky" | Runs as-is (by design) |
 | **Arcadia self-update** | **Host allow-list and file size only** | **No checksum, and it then runs `install.sh` from the downloaded archive** |
@@ -77,8 +76,7 @@ Nothing so far ran on a Deck. Do this once, write down what breaks.
 ### Phase 2: trust (security fixes above)
 1. **One verified-download helper** used by every add-on: checksum required when the release provides one; mismatch or unreadable = stop, never fall back; if a release provides none, say so in the dialog before downloading. **M**
 2. **Arcadia self-update verifies SHA-256** (GitHub lists a digest per asset) before replacing the AppImage, and before running anything from the extras archive. **S**
-3. EmuDeck: show "no checksum published" plainly; consider downloading via Flathub only. **S**
-4. Print the version of everything downloaded into the install log. **S**
+3. Print the version of everything downloaded into the install log. **S**
 Done when: a corrupted or swapped download in tests is refused for every download type.
 
 ### Phase 3: correctness

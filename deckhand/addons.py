@@ -3,9 +3,7 @@
 Nothing is repackaged. Decky's own installer (what decky.xyz links to) is downloaded and run as
 is; it asks for the admin password in its own windows, so it needs Desktop Mode. Arcadia, Deckhand's
 sister app for retro games, is its AppImage from its GitHub releases, put in ~/Applications and added to
-Steam with a launcher of Deckhand's. EmuDeck is
-downloaded the way its own install script (what emudeck.com runs) does it: the latest
-EmuDeck.AppImage from its GitHub releases, into ~/Applications, and opened from there. GE-Proton
+Steam with a launcher of Deckhand's. GE-Proton
 comes from its GitHub releases (proton.py). The rest are apps from Flathub, installed for this user
 (no password) with the streaming code's Flatpak helpers; those meant for Game Mode are also added to
 Steam, as Apps with kind "addon".
@@ -31,7 +29,6 @@ ARCADIA_RELEASE_API = "https://api.github.com/repos/PossiblyPengu/arcadia/releas
 ARCADIA_APPIMAGE = "Arcadia_x64_SteamDeck.AppImage"
 NEXUS_RELEASE_API = "https://api.github.com/repos/domsvoboda/nexus-launcher/releases/latest"
 NEXUS_APPIMAGE = "Nexus-Launcher.AppImage"  # what the project's own installer calls it too
-EMUDECK_RELEASE_API = "https://api.github.com/repos/EmuDeck/emudeck-electron/releases/latest"
 
 
 @dataclass(frozen=True)
@@ -56,7 +53,6 @@ ADDONS = (
     Addon("nexus", "Xbox PC games (Nexus Launcher)",
           "Your Xbox and Game Pass PC games, built on Xodus. New and experimental", "GitHub", "#107c10"),
     Addon("decky", "Decky Loader", "Plugins for the Quick Access menu", "decky.xyz", "#6b35c8"),
-    Addon("emudeck", "EmuDeck", "Sets up emulators and adds your retro games to Steam (Arcadia does this in one app)", "emudeck.com", "#d6313f"),
     Addon("retrodeck", "RetroDECK", "Emulators and your retro games in one app (Arcadia is the lighter option)", "Flathub", "#8f5ae8",
           app="net.retrodeck.retrodeck", steam=True),
     Addon("ge-proton", "GE-Proton", "Proton with extra fixes: more games and installers work", "GitHub", "#c0392b"),
@@ -152,16 +148,6 @@ def nexus_shortcut_of_yours(roots=None, home: Path | None = None) -> int:
     return 0
 
 
-def emudeck_app(home: Path | None = None) -> Path | None:
-    p = (home or Path.home()) / "Applications/EmuDeck.AppImage"
-    return p if p.is_file() else None
-
-
-def emudeck_set_up(home: Path | None = None) -> bool:
-    """EmuDeck has been run and has configured the emulators (it keeps its settings in ~/emudeck)."""
-    return ((home or Path.home()) / "emudeck").is_dir()
-
-
 def status(a: Addon, home: Path | None = None, installed: set[str] | None = None) -> str:
     """What's on the Deck. `installed`: Flatpak apps (None while they're still being read)."""
     if a.app:
@@ -178,9 +164,7 @@ def status(a: Addon, home: Path | None = None, installed: set[str] | None = None
     if a.id == "decky":
         v = decky_version(home)
         return f"Installed ({v})" if v and v != "installed" else ("Installed" if v else "Not installed")
-    if emudeck_app(home) is None:
-        return "Set up already" if emudeck_set_up(home) else "Not installed"
-    return "Installed" if emudeck_set_up(home) else "Downloaded — not set up yet"
+    return "Not installed"
 
 
 # ── Desktop Mode ─────────────────────────────────────────────────────────────
@@ -421,41 +405,5 @@ def open_nexus(home: Path | None = None) -> None:
     app = nexus_app(home)
     if app is None:
         raise core.InstallError("Nexus Launcher isn't downloaded yet.")
-    subprocess.Popen([str(app)], env=core.clean_env(), start_new_session=True, cwd=str(app.parent),
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
-
-
-# ── EmuDeck ──────────────────────────────────────────────────────────────────
-
-
-def emudeck_release(fetch: Callable[[str], bytes] | None = None) -> tuple[str, str]:
-    """(version, AppImage URL) of EmuDeck's latest release."""
-    data = json.loads((fetch or (lambda url: updater.fetch(url, timeout=30)))(EMUDECK_RELEASE_API))
-    url = next((a.get("browser_download_url") for a in data.get("assets", [])
-                if str(a.get("name", "")).endswith(".AppImage")), None)
-    if not url:
-        raise core.InstallError("Couldn't find EmuDeck's download in its latest release. Try again later.")
-    return str(data.get("tag_name", "")).lstrip("v"), url
-
-
-def download_emudeck(progress: Callable[[int, int], None] = lambda done, total: None,
-                     fetch: Callable[[str], bytes] | None = None, opener=None, home: Path | None = None) -> str:
-    """Download the latest EmuDeck.AppImage into ~/Applications. Returns its version."""
-    version, url = emudeck_release(fetch)
-
-    def check(head: bytes) -> None:
-        if not head.startswith(b"\x7fELF"):
-            raise core.InstallError("The EmuDeck download was damaged. Try again.")
-
-    dest = updater.download_to(url, (home or Path.home()) / "Applications/EmuDeck.AppImage", progress, opener,
-                               check=check)
-    dest.chmod(0o755)
-    return version
-
-
-def open_emudeck(home: Path | None = None) -> None:
-    app = emudeck_app(home)
-    if app is None:
-        raise core.InstallError("EmuDeck isn't downloaded yet.")
     subprocess.Popen([str(app)], env=core.clean_env(), start_new_session=True, cwd=str(app.parent),
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)

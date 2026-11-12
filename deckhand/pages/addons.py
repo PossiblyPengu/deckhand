@@ -21,8 +21,8 @@ class AddonsPage(Page):
         lay.setSpacing(12)
         lay.addWidget(label("Add-ons", "h1"))
         lay.addWidget(label("Arcadia, Deckhand's sister app for retro games, and popular Deck add-ons and tools, from "
-                            "their official sources. Decky Loader and EmuDeck set "
-                            "themselves up in Desktop Mode; apps from Flathub are installed the way Discover does it, so Discover keeps them up to date.",
+                            "their official sources. Apps from Flathub are installed the way Discover does it, so Discover keeps them up "
+                            "to date.",
                             "dim"))
         self.list = QListWidget()
         self.list.setIconSize(QSize(44, 44))
@@ -88,8 +88,6 @@ class AddonsPage(Page):
             self._nexus(a)
         elif a.id == "decky":
             self._decky(a)
-        elif a.id == "emudeck":
-            self._emudeck(a)
         elif a.id == "ge-proton":
             self._ge_proton()
         else:
@@ -445,57 +443,6 @@ class AddonsPage(Page):
             self.refresh()
 
         self.win.run_worker(run, finished, self._failed("Decky Loader"), status=self.status.setText, kind="addon")
-
-    def _emudeck(self, a: addons.Addon) -> None:
-        have = addons.emudeck_app() is not None
-        if have:
-            choice = Sheet.ask(self, "EmuDeck", f"EmuDeck is {addons.status(a).lower()}. Open it to set up or "
-                               "change your emulators, or get its newest version.",
-                               ("Open EmuDeck", "Update EmuDeck", "Cancel"))
-            if choice == 0:
-                self._open_emudeck(a)
-            elif choice == 1:
-                self._download_emudeck(a)
-            return
-        if Sheet.ask(self, "EmuDeck", "Deckhand downloads EmuDeck the way its own installer does (the latest version "
-                     "from EmuDeck's GitHub releases, into your Applications folder). EmuDeck then sets up emulators, "
-                     "your ROMs folders and Steam shortcuts.", ("Download EmuDeck", "Cancel")) == 0:
-            self._download_emudeck(a)
-
-    def _download_emudeck(self, a: addons.Addon) -> None:
-        self.status.setText("Downloading EmuDeck…")
-
-        def run(status):
-            report = getattr(status, "progress", lambda pct: None)
-
-            xfer = core.Transfer("Downloading EmuDeck…")
-
-            def progress(done: int, total: int) -> None:
-                if total:
-                    status(xfer.text(done, total))
-                    report(done * 100 // total)
-            report(-1)
-            return addons.download_emudeck(progress)
-
-        def finished(version: str) -> None:
-            self.status.setText("")
-            self.show_progress(None)
-            self.refresh()
-            self.win.flash(f"EmuDeck {version} downloaded" if version else "EmuDeck downloaded")
-            self._open_emudeck(a)
-
-        self.win.run_worker(run, finished, self._failed("EmuDeck"), status=self.status.setText, kind="addon",
-                            progress=self.show_progress)
-
-    def _open_emudeck(self, a: addons.Addon) -> None:
-        if core.in_game_mode():
-            self._desktop_only(a, "EmuDeck sets itself up in Desktop Mode.")
-            return
-        try:
-            addons.open_emudeck()
-            self.win.flash("EmuDeck is opening…")
-        except (OSError, core.InstallError) as e:
-            Sheet.ask(self, "EmuDeck", str(e), ("Close",))
 
     def _failed(self, name: str):
         def failed(message: str) -> None:
