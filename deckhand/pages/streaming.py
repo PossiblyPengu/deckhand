@@ -4,7 +4,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QProgressBar, QVBoxLayout
 
-from .. import core, streaming
+from .. import betterxcloud, core, streaming
 from ..widgets import Sheet, label
 from .common import PAGE_MARGINS, Page, STEAM_STATE, logo_icon, on_choose, set_pill
 
@@ -94,7 +94,8 @@ class StreamingPage(Page):
             else:
                 parts.append(f"installs {streaming.app_name(uses)}" if svc.is_web else "installs the app")
         if bx:
-            parts.append("Better xCloud on (Chromium)")
+            note = betterxcloud.summary(streaming.better_xcloud_dir())
+            parts.append(f"Better xCloud on ({note})" if note else "Better xCloud on (Chromium)")
         elif svc.id == "xbox-cloud" and app is None:
             parts.append("or Chromium with Better xCloud")
         return f"{svc.name}\n" + "  ·  ".join(parts)
@@ -116,11 +117,18 @@ class StreamingPage(Page):
                 return
             bx = streaming.BETTER_XCLOUD in app.options
             toggle = "Turn Better xCloud off" if bx else "Turn Better xCloud on"
-            choice = Sheet.ask(self, svc.name, text + "\n\n" + self._bx_note(svc, installed, not bx),
-                               (toggle, "Remove it", "Close"), primary=2, danger=(1,))
-            if choice == 0:
+            buttons = [toggle, *(["Update Better xCloud now"] if bx else []), "Remove it", "Close"]
+            note = betterxcloud.summary(streaming.better_xcloud_dir()) if bx else ""
+            choice = Sheet.ask(self, svc.name,
+                               text + "\n\n" + self._bx_note(svc, installed, not bx)
+                               + (f"\n\nBetter xCloud: {note}." if note else ""),
+                               tuple(buttons), primary=len(buttons) - 1, danger=(buttons.index("Remove it"),))
+            picked = buttons[choice] if 0 <= choice < len(buttons) else ""
+            if picked == toggle:
                 self.win.set_up_stream(svc, better_xcloud=not bx)
-            elif choice == 1:
+            elif picked == "Update Better xCloud now":
+                self._update_better_xcloud()
+            elif picked == "Remove it":
                 self.win.uninstall(app)
             return
         outside = self.outside.get(svc.id) if app is None else None
@@ -160,6 +168,20 @@ class StreamingPage(Page):
             return
         if Sheet.ask(self, f"Add {svc.name} to Steam?", text, ("Add to Steam", "Cancel")) == 0:
             self.win.set_up_stream(svc)
+
+    def _update_better_xcloud(self) -> None:
+        self.status.setText("Looking for a newer Better xCloud…")
+
+        def finished(result: betterxcloud.Result) -> None:
+            self.status.setText("")
+            self.win.flash(result.message, 4000)
+            self.refresh()
+
+        def failed(message: str) -> None:
+            self.status.setText("")
+            self.win.flash(f"Couldn't check for Better xCloud: {message}", 4000)
+
+        self.win.run_worker(lambda _s: streaming.update_better_xcloud(force=True), finished, failed, kind="stream")
 
     @staticmethod
     def _browser_state(svc: streaming.Service, installed: set[str], better_xcloud: bool) -> str:

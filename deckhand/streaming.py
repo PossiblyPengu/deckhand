@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import core
+from . import betterxcloud, core
 
 FLATHUB = "https://dl.flathub.org/repo/flathub.flatpakrepo"
 CHROME, EDGE, CHROMIUM = "com.google.Chrome", "com.microsoft.Edge", "org.chromium.Chromium"
@@ -34,7 +34,7 @@ OWN_PROFILE = "own-profile"
 # userscript manager (@grant none), so Deckhand wraps it in a tiny browser extension and
 # loads it with --load-extension. Google Chrome no longer accepts that switch; Chromium does.
 BETTER_XCLOUD = "better-xcloud"
-BETTER_XCLOUD_URL = "https://github.com/redphx/better-xcloud/releases/latest/download/better-xcloud.user.js"
+BETTER_XCLOUD_URL = betterxcloud.URL
 
 
 @dataclass(frozen=True)
@@ -206,31 +206,34 @@ def better_xcloud_dir() -> Path:
 
 
 def install_better_xcloud(dest: Path | None = None, fetch: Callable[[str], bytes] | None = None) -> str:
-    """Download Better xCloud and wrap it as an unpacked extension. Returns its version."""
-    import json
+    """Download Better xCloud and wrap it as an unpacked extension (see betterxcloud.py). Returns its version."""
+    result = betterxcloud.update(dest or better_xcloud_dir(), fetch=fetch, force=True)
+    if not result.ok:
+        raise core.InstallError(result.message)
+    return result.version
 
-    from . import updater
 
-    dest = dest or better_xcloud_dir()
-    raw = (fetch or (lambda url: updater.fetch(url, timeout=30, limit=20 << 20)))(BETTER_XCLOUD_URL)
-    text = raw.decode("utf-8", errors="replace")
-    head = text.split("==/UserScript==", 1)[0]
-    if "==UserScript==" not in head or "Better xCloud" not in head:
-        raise core.InstallError("The Better xCloud download didn't look right, so it wasn't installed.")
-    m = re.search(r"@version\s+([\d.]+)", head)
-    version = ".".join((m.group(1) if m else "1").split(".")[:4])
-    matches = re.findall(r"@match\s+(\S+)", head) or ["https://www.xbox.com/*/play*"]
-    excludes = re.findall(r"@exclude\s+(\S+)", head)
-    dest.mkdir(parents=True, exist_ok=True)
-    (dest / "better-xcloud.user.js").write_text(text, encoding="utf-8")
-    manifest = {
-        "manifest_version": 3, "name": "Better xCloud (added by Deckhand)", "version": version,
-        "description": "github.com/redphx/better-xcloud",
-        "content_scripts": [{"matches": matches, "exclude_matches": excludes, "js": ["better-xcloud.user.js"],
-                             "run_at": "document_start", "world": "MAIN"}],
-    }
-    (dest / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    return version
+def update_better_xcloud(force: bool = False, fetch: Callable[[str], bytes] | None = None) -> betterxcloud.Result:
+    """Look for a newer Better xCloud (at most every six hours unless `force`) and install it."""
+    return betterxcloud.update(better_xcloud_dir(), fetch=fetch, force=force)
+
+
+def better_xcloud_updater(d: Path) -> list[str]:
+    """Bash for a launcher: get the newest Better xCloud *before* the browser starts, so this launch already has it.
+    Deckhand does the work (at most every six hours, never more than 15 seconds); a copy of Deckhand that can't be
+    found falls back to a plain background download, used from the next launch."""
+    from . import start
+
+    q = shlex.quote
+    deckhand = start.self_exe() or Path.home() / ".local/bin/deckhand"
+    new = q(str(d / ".new.js"))
+    return [f"D={q(str(d))}", f"DH={q(str(deckhand))}",
+            'if [ -x "$DH" ]; then',
+            '  if [ ! -e "$D/.checked" ] || [ -n "$(find "$D/.checked" -mmin +360 2>/dev/null)" ]; then',
+            '    timeout 15 "$DH" --update-better-xcloud || true', "  fi", "else",
+            f"  ( curl -fsL --max-time 60 {q(BETTER_XCLOUD_URL)} -o {new} "
+            f"&& grep -q '==UserScript==' {new} "
+            f"&& mv {new} {q(str(d / 'better-xcloud.user.js'))} ) >/dev/null 2>&1 &", "fi"]
 
 
 class FlatpakProgress:
@@ -401,11 +404,7 @@ def write_launcher(svc: Service, paths: core.Paths, installed: set[str], better_
     lines = ["#!/bin/bash", f"# Deckhand: {svc.name}",
              f"{{ mkdir -p {q(str(log.parent))} && exec >{q(str(log))} 2>&1; }} || true"]
     if better_xcloud:
-        d = better_xcloud_dir()
-        # Keep Better xCloud current: fetch the newest in the background, used from the next launch.
-        lines.append(f"( curl -fsL --max-time 60 {q(BETTER_XCLOUD_URL)} -o {q(str(d / '.new.js'))} "
-                     f"&& grep -q '==UserScript==' {q(str(d / '.new.js'))} "
-                     f"&& mv {q(str(d / '.new.js'))} {q(str(d / 'better-xcloud.user.js'))} ) >/dev/null 2>&1 &")
+        lines += better_xcloud_updater(better_xcloud_dir())  # (see there: updated before the browser starts)
     runner = uses(svc, installed, better_xcloud)
     if svc.is_web and runner in BROWSERS:
         def line(desktop: bool) -> str:

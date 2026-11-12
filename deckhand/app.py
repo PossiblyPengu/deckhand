@@ -117,6 +117,7 @@ class MainWindow(QMainWindow):
             self.flash(f"Steam has {len(dupes)} duplicate shortcut{'s' * (len(dupes) != 1)} — "
                        "☰ Menu → Remove duplicate Steam shortcuts", ms=8000)
         QTimer.singleShot(0, self.check_leftovers)
+        QTimer.singleShot(2000, self.refresh_better_xcloud)  # (after the window is up; at most every six hours)
         if check_updates is None:
             check_updates = updater.self_path() is not None and not os.environ.get("DECKHAND_NO_UPDATE_CHECK")
         if check_updates:
@@ -731,6 +732,16 @@ class MainWindow(QMainWindow):
                         finished, failed,
                         status=page.status.setText, kind="stream", progress=page.show_progress)
 
+    def refresh_better_xcloud(self) -> None:
+        """Keep Better xCloud current for someone who has it on, even if they only open Deckhand."""
+        if not any(a.kind == "stream" and streaming.BETTER_XCLOUD in a.options for a in self.library.load()):
+            return
+        if self.busy_with_quietly("better-xcloud"):
+            return
+        self.run_worker(lambda _s: streaming.update_better_xcloud(),
+                        lambda r: self.flash(r.message) if r.status == "updated" else None,
+                        lambda _m: None, kind="better-xcloud")
+
     def check_leftovers(self) -> None:
         """Offer to delete prefixes left by interrupted installs (sized in the background)."""
         kept = set(self.paths.state().get("kept_leftovers", []))
@@ -1295,6 +1306,14 @@ class MainWindow(QMainWindow):
         event.accept()
 
 
+def update_better_xcloud_cli(force: bool = False, out=print, fetch=None) -> int:
+    """`deckhand --update-better-xcloud [--force]`: look for a newer Better xCloud and install it."""
+    result = streaming.update_better_xcloud(force=force, fetch=fetch)
+    if result.status != "skipped":
+        out(result.message)
+    return 0 if result.ok else 1
+
+
 def add_arcadia_cli(out=print) -> int:
     """`deckhand --add-arcadia`: download Arcadia, the sister app, and set it up (menu entry, Steam shortcut)."""
     from PyQt6.QtGui import QGuiApplication
@@ -1323,12 +1342,15 @@ def main(argv: list[str] | None = None) -> int:
     if "-h" in args or "--help" in args:
         print("usage: deckhand [INSTALLER.exe|.msi]\n"
               "       deckhand --update\n"
-              "       deckhand --add-arcadia\n\n"
+              "       deckhand --add-arcadia\n"
+              "       deckhand --update-better-xcloud [--force]\n\n"
               "Opens Deckhand. Given an installer, asks to install it right away.\n"
               "--update downloads and installs the newest Deckhand.")
         return 0
     if "--update" in args:
         return updater.cli_update(__version__)
+    if "--update-better-xcloud" in args:  # run by the Xbox launcher before it starts the browser
+        return update_better_xcloud_cli(force="--force" in args)
     if "--add-arcadia" in args:  # used by get.sh --with-arcadia: the same thing as Add-ons → Arcadia
         return add_arcadia_cli()
     if "--install-icon" in args:  # used by get.sh: put the app icon where the desktop finds it
