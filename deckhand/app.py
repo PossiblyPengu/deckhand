@@ -278,14 +278,20 @@ class MainWindow(QMainWindow):
         home = Path.home()
         places = [("Downloads", home / "Downloads"), ("Desktop", home / "Desktop"), ("Home", home)]
         places += [(p.name, p) for p in core.removable_media()]
-        self.browser.open("Choose an installer", places, core.INSTALLER_SUFFIXES, self.confirm_install,
+        self.browser.open("Choose an installer", places, core.INSTALLER_SUFFIXES + core.ARCHIVE_SUFFIXES,
+                          self.confirm_install,
                           self.go_home)
         self.go(self.browser)
 
-    def confirm_install(self, installer: Path) -> None:
-        if self.thread is not None or self.pending is not None or self.update_thread is not None or self.busy:
+    def confirm_install(self, installer: Path) -> bool:
+        """Ask, then install. True if an install was started."""
+        if self.thread is not None or self.pending is not None or self.update_thread is not None \
+                or any(getattr(w, "kind", "") != "unpack" for w in self.workers):  # (opening an archive leads here)
             self.flash("Finish what's running first")
-            return
+            return False
+        if installer.suffix.lower() in core.ARCHIVE_SUFFIXES:
+            self.unpack_then_confirm(installer)
+            return False
         name = core.guess_name(installer)
         size_b = core.files_size(core.installer_files(installer))
         free_b = core.free_space(self.paths.root)
@@ -308,17 +314,47 @@ class MainWindow(QMainWindow):
         text += "\n".join(f"⚠  {n}" for n in notes) + ("\n\n" if notes else "")
         text += ("The installer opens next — click through it as usual. Deckhand then finds the program "
                  "and adds it to Steam.")
+        if core.quiet_args(installer) is not None:
+            text += ("\n\nQuick install lets the installer use its own default choices, so there is nothing to "
+                     "click. Choose Install if you want to pick the folder or options yourself.")
+            choice = Sheet.ask(self, f"Install {name}?", text, ("Quick install", "Install", "Cancel"))
+            if choice in (0, 1):
+                self.start_install(installer, quiet=choice == 0)
+                return True
+            return False
         if Sheet.ask(self, f"Install {name}?", text, ("Install", "Cancel")) == 0:
             self.start_install(installer)
+            return True
+        return False
 
-    def start_install(self, installer: Path, allow_no_container: bool = False, name: str = "") -> None:
+    UNPACKED = "unpacked"  # (a folder in Deckhand's downloads: archives are opened here, and deleted afterwards)
+
+    def unpack_then_confirm(self, archive: Path) -> None:
+        """A .zip/.7z/.rar/.iso: unpack it, find its setup file, and go on as if that was picked."""
+        dest = self.paths.downloads / self.UNPACKED / core.guess_name(archive).replace("/", "_")
+        if self.busy_with("unpack"):
+            return
+        self.flash(f"Opening {archive.name}…")
+
+        def done(setup: Path) -> None:
+            if not self.confirm_install(setup):
+                self.drop_download(setup)
+
+        def failed(message: str) -> None:
+            Sheet.ask(self, "Couldn't open it", message.partition("\n\n")[0], ("Close",),
+                      detail=message.partition("\n\n")[2])
+
+        self.run_worker(lambda _s: core.extract_archive(archive, dest), done, failed, kind="unpack")
+
+    def start_install(self, installer: Path, allow_no_container: bool = False, name: str = "",
+                      quiet: bool = False) -> None:
         if self.thread is not None:
             return
         installer = Path(installer)
-        self.current_installer, self.current_name = installer, name
+        self.current_installer, self.current_name, self.current_quiet = installer, name, quiet
         self.progress.reset(installer, name)
         self.go(self.progress)
-        t = InstallThread(installer, self.paths, allow_no_container, name)
+        t = InstallThread(installer, self.paths, allow_no_container, name, quiet)
         t.status.connect(lambda text: self.progress.on_status(text, t.job.stage))
         t.log.connect(self.progress.log.appendPlainText)
         t.done.connect(self.on_installed)
@@ -354,8 +390,14 @@ class MainWindow(QMainWindow):
     def drop_download(self, installer: Path | None) -> None:
         """A store's installer that Deckhand downloaded itself is deleted once its install is over
         (the user never saw it, and the big ones take a few hundred MB)."""
-        if installer is not None and installer.resolve().parent == self.paths.downloads.resolve():
+        if installer is None:
+            return
+        if installer.resolve().parent == self.paths.downloads.resolve():
             installer.unlink(missing_ok=True)
+            return
+        unpacked = (self.paths.downloads / self.UNPACKED).resolve()
+        if installer.resolve().is_relative_to(unpacked) and installer.resolve() != unpacked:
+            shutil.rmtree(unpacked / installer.resolve().relative_to(unpacked).parts[0], ignore_errors=True)
 
     def on_cancelled(self) -> None:
         self.progress.stop()
@@ -381,7 +423,8 @@ class MainWindow(QMainWindow):
                                "hundred MB). Run the install again when it's done.",
                                ("Install it", "Continue without it", "Cancel"))
             if choice == 1 and self.current_installer:
-                self.start_install(self.current_installer, allow_no_container=True, name=self.current_name)
+                self.start_install(self.current_installer, allow_no_container=True, name=self.current_name,
+                                   quiet=getattr(self, "current_quiet", False))
                 return
             self.drop_download(self.current_installer)
             if choice == 0:
@@ -1209,7 +1252,7 @@ class MainWindow(QMainWindow):
         urls = event.mimeData().urls() if event.mimeData().hasUrls() else []
         if len(urls) == 1 and urls[0].isLocalFile():
             p = Path(urls[0].toLocalFile())
-            if p.suffix.lower() in core.INSTALLER_SUFFIXES:
+            if p.suffix.lower() in core.INSTALLER_SUFFIXES + core.ARCHIVE_SUFFIXES:
                 return p
         return None
 

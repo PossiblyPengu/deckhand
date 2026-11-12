@@ -62,9 +62,11 @@ class PickPage(Page):
             self.list.addItem(it)
         has = bool(cands)
         self.heading.setText("Which one is the program?" if has else "Nothing was installed")
+        why = core.explain_exit(pending.kind, pending.exit_code) if pending.exit_code is not None else ""
         self.hint.setText("The installer finished. Pick the program to add to Steam." if has else
                           "No new program files were found. If this file is the program itself (no setup "
-                          "needed), add it as it is. Otherwise the installer may have been closed early.")
+                          "needed), add it as it is. Otherwise the installer may have been closed early."
+                          + (f"\n\n{why}" if why else ""))
         self.list.setVisible(has)
         self.use_btn.setVisible(has)
         self.portable.setVisible(pending.installer.suffix.lower() == ".exe")

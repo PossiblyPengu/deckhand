@@ -16,10 +16,11 @@ class InstallThread(QThread):
     failed = pyqtSignal(str)
     cancelled = pyqtSignal()
 
-    def __init__(self, installer: Path, paths: core.Paths, allow_no_container: bool = False, name: str = ""):
+    def __init__(self, installer: Path, paths: core.Paths, allow_no_container: bool = False, name: str = "",
+                 quiet: bool = False):
         super().__init__()
         self.job = core.Installer(installer, paths, status=self.status.emit, log=self.log.emit,
-                                  allow_no_container=allow_no_container, name=name)
+                                  allow_no_container=allow_no_container, name=name, quiet=quiet)
 
     def run(self) -> None:
         try:
