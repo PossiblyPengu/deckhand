@@ -32,7 +32,7 @@ QMainWindow, QDialog#page {{ background: {BG}; }}
 QWidget#root {{ background: {BG}; }}
 QLabel#h1 {{ font-family: "{TITLE_FONT}"; font-size: 34px; font-weight: 600; }}
 QLabel#h2 {{ font-family: "{TITLE_FONT}"; font-size: 24px; font-weight: 600; color: {TEXT}; }}
-QLabel#section {{ font-size: 15px; font-weight: 800; color: {MUTED}; letter-spacing: 1px; }}
+QLabel#section {{ font-size: 15px; font-weight: 800; color: {MUTED}; }}
 QLabel#muted {{ color: {MUTED}; }}
 QLabel#dim {{ color: {TEXT_DIM}; }}
 QLabel#status {{ font-size: 22px; font-weight: 700; }}

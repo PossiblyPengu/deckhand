@@ -3,6 +3,8 @@
 # Downloads the latest prebuilt binary — no pip, pacman, or developer mode needed.
 #
 #   curl -fsSL https://raw.githubusercontent.com/PossiblyPengu/deckhand/main/get.sh | bash
+#
+# Add --with-arcadia to also install Arcadia, its sister app for retro games (bash -s -- --with-arcadia).
 set -euo pipefail
 
 REPO="PossiblyPengu/deckhand"
@@ -64,3 +66,8 @@ echo "  Find it in the app menu under Games, or run: deckhand"
 echo ""
 echo "Tip: in Desktop Mode you can right-click any setup .exe → Open With → Deckhand."
 echo "To use it from Game Mode, open Deckhand and pick ☰ Menu → \"Add Deckhand to Steam\"."
+
+if [ "${1:-}" = "--with-arcadia" ]; then
+  echo ""
+  "$BIN_DIR/deckhand" --add-arcadia || echo "  (Arcadia can be added later from Deckhand: Add-ons → Arcadia)"
+fi
