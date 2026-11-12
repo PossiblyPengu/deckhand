@@ -1,5 +1,5 @@
 {
-  "version": "4.4.0",
-  "sha256": "59cbddd07242927150e4c5f42d3d0958306fcb298772f004a94201ac7f5b4e73",
-  "notes": "Game streaming reworked. Each cloud service keeps its own sign-in, and the launcher finds a browser every time it starts (or says what is missing). When the Deck has no browser, Deckhand asks which one to install and shows its size. Better xCloud now stays current by itself: it is checked before Xbox Cloud Gaming starts, only accepts a real newer Better xCloud that stays on xbox.com, keeps the previous version, and shows its version with an Update now button. Greenlight added for your own Xbox. Quick install for Inno Setup, NSIS and MSI installers, and archives are unpacked for you."
+  "version": "4.5.0",
+  "sha256": "114ee8f5e5508eec6c1185aec9f10f5f3b161eda7a2511c26618d5ec9c86dbfd",
+  "notes": "Everything Deckhand installs now works from Game Mode. Decky Loader runs its own installer with its questions (admin password, temporary password, release or prerelease, update, uninstall, wipe) asked on Deckhand's screens, so no Desktop Mode switch is needed. Desktop tools such as ProtonUp-Qt, Protontricks, Ludusavi and Flatseal are added to Steam when installed in Game Mode so they can be opened there. Deckhand adds itself to Steam the first time it runs, once. EmuDeck is gone: Arcadia replaces it."
 }
