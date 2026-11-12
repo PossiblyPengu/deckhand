@@ -1250,6 +1250,25 @@ class MainWindow(QMainWindow):
         event.accept()
 
 
+def add_arcadia_cli(out=print) -> int:
+    """`deckhand --add-arcadia`: download Arcadia, the sister app, and set it up (menu entry, Steam shortcut)."""
+    from PyQt6.QtGui import QGuiApplication
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    gui = QGuiApplication(sys.argv[:1])  # the artwork is painted
+    try:
+        out("Downloading Arcadia…")
+        version = addons.download_arcadia()
+        addons.set_up_arcadia(core.Paths.default())
+    except (core.InstallError, OSError) as e:
+        out(f"Couldn't set up Arcadia: {e}")
+        return 1
+    finally:
+        del gui
+    out(f"Arcadia {version} is installed in ~/Applications and added to Steam.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
     args = argv[1:]
@@ -1258,12 +1277,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if "-h" in args or "--help" in args:
         print("usage: deckhand [INSTALLER.exe|.msi]\n"
-              "       deckhand --update\n\n"
+              "       deckhand --update\n"
+              "       deckhand --add-arcadia\n\n"
               "Opens Deckhand. Given an installer, asks to install it right away.\n"
               "--update downloads and installs the newest Deckhand.")
         return 0
     if "--update" in args:
         return updater.cli_update(__version__)
+    if "--add-arcadia" in args:  # used by get.sh --with-arcadia: the same thing as Add-ons → Arcadia
+        return add_arcadia_cli()
     if "--install-icon" in args:  # used by get.sh: put the app icon where the desktop finds it
         from PyQt6.QtGui import QGuiApplication
 

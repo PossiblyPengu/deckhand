@@ -3,6 +3,7 @@ import io
 import json
 import os
 import sys
+import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -187,3 +188,31 @@ class TestFlathubAddons(FlatpakEnv):
                 self.assertRegex(a.app, r"^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){2,}$", a.id)
             self.assertFalse(a.steam and not a.app, a.id)  # only Flathub apps are added to Steam
 
+
+
+class AddArcadiaCliTests(unittest.TestCase):
+    """`deckhand --add-arcadia`, which get.sh --with-arcadia runs."""
+
+    def run_cli(self, download, setup=lambda paths: None):
+        from unittest import mock
+
+        from deckhand import app
+        lines: list[str] = []
+        with mock.patch.object(addons, "download_arcadia", download), \
+                mock.patch.object(addons, "set_up_arcadia", setup):
+            rc = app.add_arcadia_cli(out=lines.append)
+        return rc, "\n".join(lines)
+
+    def test_downloads_then_sets_up(self):
+        calls = []
+        rc, text = self.run_cli(lambda: calls.append("download") or "1.2.3",
+                                lambda paths: calls.append("setup"))
+        self.assertEqual((rc, calls), (0, ["download", "setup"]))
+        self.assertIn("Arcadia 1.2.3", text)
+
+    def test_a_failed_download_is_reported(self):
+        def boom():
+            raise core.InstallError("no network")
+        rc, text = self.run_cli(boom)
+        self.assertEqual(rc, 1)
+        self.assertIn("no network", text)

@@ -76,7 +76,7 @@ class HomePage(Page):
             t.show()  # layouts show new children lazily; focus needs them visible now
         self.grid.setColumnStretch(COLUMNS, 1)
 
-        self.section.setText(f"FOUND ON THIS DECK  ·  {len(found)}" if found else "FOUND ON THIS DECK")
+        self.section.setText(f"Found on this Deck  ·  {len(found)}" if found else "Found on this Deck")
         if not found:
             self.note.setText("No setup files found in Downloads, on the Desktop or on an SD card or USB "
                               "drive. Use Browse files to look anywhere else.")

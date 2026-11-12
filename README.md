@@ -10,7 +10,7 @@ Deckhand is an installer, not a launcher: once something is installed you play i
 2. Click through the installer as usual.
 3. Done: the program is in your Steam library, with its icon and library artwork.
 
-Built for the Deck: six sections down the left (**Start · Install · Stores · Stream · Add-ons · Installed**, switch with **L1/R1** or tap), full controller support (D-pad/stick to move, **A** select, **B** back, **X** browse, **☰** menu), big touch targets, button hints along the bottom, and full screen in Game Mode. It shares its look with its sister app [Arcadia](https://github.com/PossiblyPengu/arcadia) (Arcadia's `DESIGN.md`: soft pastels, rounded cards and pill buttons, Nunito and Fraunces). Dusk, the dark scheme, is the default; **☰ Menu → Light look** switches to Cloud.
+Built for the Deck: six sections down the left (**Start · Install · Stores · Stream · Add-ons · Installed**, switch with **L1/R1** or tap), full controller support (D-pad/stick to move, **A** select, **B** back, **X** browse, **☰** menu), big touch targets, button hints along the bottom, and full screen in Game Mode. It shares its look with its sister app [Arcadia](https://github.com/PossiblyPengu/arcadia) (`DESIGN.md`: soft pastels, rounded cards and pill buttons, Nunito and Fraunces). Dusk, the dark scheme, is the default; **☰ Menu → Light look** switches to Cloud.
 
 ## Start: a checklist for a new Deck
 
@@ -111,6 +111,7 @@ curl -fsSL https://raw.githubusercontent.com/PossiblyPengu/deckhand/main/get.sh 
 ```
 
 No pip, pacman, or developer mode needed. The script downloads the prebuilt binary and checks its checksum.
+To get the whole suite in one go, add Arcadia (retro games) too: `curl -fsSL …/get.sh | bash -s -- --with-arcadia`.
 
 - To use Deckhand in Game Mode: **☰ Menu → Add Deckhand to Steam**.
 - **Updates are built in:** when a new version is out, a banner on the home screen offers **Update now**; the download is checksum-verified and Deckhand restarts into it. You can also use **☰ Menu → Check for updates**, or `deckhand --update` in Konsole.
@@ -170,6 +171,7 @@ shortcuts' folders are always kept.
 deckhand                             # open the app
 deckhand ~/Downloads/setup.exe       # open and offer to install that file
 deckhand --update                    # update Deckhand itself
+deckhand --add-arcadia               # download Arcadia, the sister app, and add it to Steam
 ```
 
 ## Develop
