@@ -6,10 +6,10 @@ from typing import Callable
 
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QIcon, QPixmap
-from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QProgressBar, QVBoxLayout
+from PyQt6.QtWidgets import QHBoxLayout, QListWidget, QListWidgetItem, QProgressBar, QVBoxLayout, QWidget
 
 from .. import artwork, core, fixes, saves
-from ..widgets import Sheet, label
+from ..widgets import Sheet, button, label
 from .common import KIND_LABEL, PAGE_MARGINS, Page, STEAM_STATE, ago, badge_icon, glyph_icon, on_choose, set_pill
 from .threads import SizesThread
 
@@ -32,10 +32,22 @@ class InstalledPage(Page):
         self.list.setIconSize(QSize(44, 44))
         on_choose(self.list, self._activate)
         lay.addWidget(self.list, 1)
-        self.empty = label("Nothing installed with Deckhand yet. Install a Windows program, or set up a game store, "
-                           "a streaming service or an add-on: they're listed here afterwards.", "muted")
-        self.empty.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        lay.addWidget(self.empty, 1)  # (takes the list's room while there's no list)
+        # Nothing installed yet: say so, and offer the two ways to start (takes the list's room meanwhile).
+        self.empty = QWidget()
+        box = QVBoxLayout(self.empty)
+        box.setContentsMargins(0, 8, 0, 0)
+        box.setSpacing(14)
+        box.addWidget(label("Nothing installed with Deckhand yet. What you set up shows up here afterwards, to fix, "
+                            "back up or remove.", "muted"))
+        self.start_buttons = [button("Install a Windows program", "primary", lambda: win.switch_section("install")),
+                              button("Browse game stores", "", lambda: win.switch_section("stores"))]
+        for b in self.start_buttons:
+            row = QHBoxLayout()
+            row.addWidget(b)
+            row.addStretch(1)
+            box.addLayout(row)
+        box.addStretch(1)
+        lay.addWidget(self.empty, 1)
         self.status = label("", "muted")
         lay.addWidget(self.status)
         self.bar = QProgressBar()
@@ -183,7 +195,7 @@ class InstalledPage(Page):
 
     def enter(self) -> None:
         self.refresh()
-        (self.list if self.list.isVisible() else self).setFocus()
+        (self.list if self.list.isVisible() else self.start_buttons[0]).setFocus()
 
     def hints(self):
         return [("A", "Select", self.win.nav_activate), ("B", "Back", self.back)]

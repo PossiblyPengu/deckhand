@@ -117,7 +117,7 @@ class TestWindow(Env):
         self.assertIs(self.win.stack.currentWidget(), self.win.stores)
         pick("program")
         self.assertIs(self.win.stack.currentWidget(), self.win.home)
-        self.win.on_action("lb")  # L1 from Install is Start
+        self.win.switch_section("start")
         self.assertIs(self.win.stack.currentWidget(), self.win.start)
 
     def test_home_shows_found_installers(self):
@@ -189,8 +189,12 @@ class TestWindow(Env):
         self.key(Qt.Key.Key_Left)
         self.key(Qt.Key.Key_Left)
         self.assertIs(QApplication.focusWidget(), tiles[0])
-        self.key(Qt.Key.Key_Left)  # nothing further left: stays put
-        self.assertIs(QApplication.focusWidget(), tiles[0])
+        self.key(Qt.Key.Key_Left)  # nothing further left in the page: on to the section rail
+        self.assertIn(QApplication.focusWidget(), self.win.stations.values())
+        self.key(Qt.Key.Key_Right)  # and right goes back to the page
+        self.assertIsInstance(QApplication.focusWidget(), __import__("deckhand.widgets", fromlist=["Tile"]).Tile)
+        while QApplication.focusWidget() is not tiles[0]:
+            self.key(Qt.Key.Key_Left)
         self.key(Qt.Key.Key_Return)  # A on "Browse files"
         self.wait_for(lambda: self.win.stack.currentWidget() is self.win.browser)
         self.assertEqual(self.win.browser.cwd, self.downloads)
@@ -474,8 +478,7 @@ class TestWindow(Env):
         os.environ.update(PATH=f"{bindir}:{os.environ['PATH']}", FAKE_FLATPAK_LOG=str(self.tmp / "fp.log"),
                           FAKE_FLATPAK_DB=str(self.tmp / "fp.db"))
         self.win.go_home()
-        for _ in range(2):
-            self.win.on_action("rb")  # R1 twice: Install → Stores → Stream
+        self.win.switch_section("stream")
         self.assertIs(self.win.stack.currentWidget(), self.win.streaming)
         self.assertTrue(self.win.stations["stream"].isChecked())
         page = self.win.streaming
@@ -623,8 +626,7 @@ class TestWindow(Env):
         from deckhand import addons
         from tests.test_addons import FakeResponse
         self.win.go_home()
-        for _ in range(3):
-            self.win.on_action("rb")  # R1 three times: Install → Stores → Stream → Add-ons
+        self.win.switch_section("addons")
         page = self.win.addons
         self.assertIs(self.win.stack.currentWidget(), page)
         self.assertTrue(self.win.stations["addons"].isChecked())
@@ -656,7 +658,7 @@ class TestWindow(Env):
         from deckhand import stores
         from tests.test_addons import FakeResponse
         self.win.go_home()
-        self.win.on_action("rb")  # R1: Install → Stores
+        self.win.switch_section("stores")
         page = self.win.stores
         self.assertIs(self.win.stack.currentWidget(), page)
         self.assertTrue(self.win.stations["stores"].isChecked())
@@ -1077,6 +1079,49 @@ class TestWindow(Env):
         QTest.mouseRelease(v, b, pos=r)
         self.pump()
         self.assertEqual(self.win.browser.cwd, sub)  # not bounced back up (or into "inner")
+
+    def test_the_rail_is_reached_with_left_and_used_with_up_down_and_a(self):
+        from deckhand import nav
+        win = self.win
+        win.switch_section("addons")
+        self.pump()
+        for b in win.stations.values():
+            self.assertTrue(b.focusPolicy() & Qt.FocusPolicy.TabFocus)  # focusable: no L1/R1 needed
+        lst = win.addons.list
+        lst.setFocus()
+        self.pump()
+        rects = lambda ws: [(w, nav._grect(w)) for w in ws]  # noqa: E731
+        cands = [w for w in nav.focusable(win) if w is not lst]
+        left = nav.nearest(nav._grect(lst), rects(cands), "left")
+        self.assertIn(left, win.stations.values())  # left from the page lands in the rail
+        down = nav.nearest(nav._grect(win.stations["addons"]), rects(cands), "down")
+        self.assertIs(down, win.stations["installed"])  # down is the next section
+        up = nav.nearest(nav._grect(win.stations["addons"]), rects(cands), "up")
+        self.assertIs(up, win.stations["stream"])
+        right = nav.nearest(nav._grect(win.stations["addons"]), rects(cands + [lst]), "right")
+        self.assertIsNotNone(right)
+        self.assertNotIn(right, win.stations.values())  # right goes back to the page
+
+    def test_choosing_a_section_from_the_rail_moves_focus_into_its_page(self):
+        win = self.win
+        win.stations["stores"].setFocus()
+        win.stations["stores"].click()
+        self.wait_for(lambda: win.stack.currentWidget() is win.stores)
+        self.pump()
+        fw = QApplication.focusWidget()
+        self.assertTrue(fw is not None and win.stores.isAncestorOf(fw))
+        # Choosing the section you are already in also carries on into the page.
+        win.stations["stores"].setFocus()
+        win.stations["stores"].click()
+        self.pump(10)
+        fw = QApplication.focusWidget()
+        self.assertTrue(fw is not None and win.stores.isAncestorOf(fw))
+
+    def test_there_is_no_shoulder_button_section_switching(self):
+        before = self.win.stack.currentWidget()
+        self.win.on_action("rb")
+        self.win.on_action("lb")
+        self.assertIs(self.win.stack.currentWidget(), before)
 
     def test_a_zip_is_unpacked_asked_about_and_cleaned_up(self):
         import zipfile

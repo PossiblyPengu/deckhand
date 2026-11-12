@@ -126,7 +126,8 @@ class MainWindow(QMainWindow):
     SECTIONS = ("start", "install", "stores", "stream", "addons", "installed")
 
     def _rail(self) -> QWidget:
-        """Deckhand's sections down the left: tap them, or switch with L1/R1."""
+        """Deckhand's sections down the left: tap them, or press left on the D-pad to reach them, up and down to
+        choose and A to open (right goes back to the page)."""
         rail = QFrame()
         rail.setObjectName("rail")
         rail.setFixedWidth(206)
@@ -138,22 +139,24 @@ class MainWindow(QMainWindow):
         mark.setContentsMargins(24, 0, 0, 18)
         v.addWidget(mark)
         self.stations: dict[str, QPushButton] = {}
+        self.station_glyphs: dict[str, str] = {}
         for key, text, glyph in (("start", "Start", "flag"), ("install", "Install", "download"), ("stores", "Stores", "bag"),
                                  ("stream", "Stream", "signal"), ("addons", "Add-ons", "plus"),
                                  ("installed", "Installed", "stack")):
             b = QPushButton(text)
             b.setObjectName("station")
             b.setCheckable(True)
-            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             b.setIcon(glyph_icon(glyph))
             b.setIconSize(QSize(26, 26))
             b.clicked.connect(lambda _c=False, k=key: self.switch_section(k))
             v.addWidget(b)
             self.stations[key] = b
+            self.station_glyphs[key] = glyph
         v.addStretch(1)
         menu = QPushButton("Menu")
         menu.setObjectName("station")
-        menu.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        menu.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         menu.setIcon(glyph_icon("menu"))
         menu.setIconSize(QSize(26, 26))
         menu.clicked.connect(lambda _c=False: self.open_menu())
@@ -162,7 +165,7 @@ class MainWindow(QMainWindow):
         self.space = label("", "muted", wrap=False)
         self.space.setContentsMargins(24, 0, 0, 2)
         v.addWidget(self.space)
-        for text in ("L1 / R1 to switch", f"Deckhand {__version__}"):
+        for text in ("◀ on the D-pad for this menu", f"Deckhand {__version__}"):
             foot = label(text, "muted", wrap=False)
             foot.setContentsMargins(24, 0, 0, 0)
             v.addWidget(foot)
@@ -189,6 +192,7 @@ class MainWindow(QMainWindow):
         if key == current and self.stack.currentWidget() in (self.start, self.home, self.stores, self.streaming, self.addons,
                                                              self.installed):
             self._sync_stations()
+            self.stack.currentWidget().enter()  # (picked from the rail: carry on into the page)
             return
         if self.must_stay():
             self._sync_stations()
@@ -208,6 +212,8 @@ class MainWindow(QMainWindow):
         current = self.section_of(self.stack.currentWidget())
         for key, b in self.stations.items():
             b.setChecked(key == current)
+            # (the chosen section is a pill: its icon must read on the pill, not on the rail)
+            b.setIcon(glyph_icon(self.station_glyphs[key], theme.ON_PILL if key == current else theme.TEXT_DIM))
 
     def _focus_changed(self, _old, _new) -> None:
         self.update_hints()
@@ -264,10 +270,6 @@ class MainWindow(QMainWindow):
             page.x()
         elif action in ("start", "select"):
             self.open_menu()
-        elif action in ("lb", "rb"):  # previous / next section, like tabs
-            current = self.section_of(page) or "install"
-            i = self.SECTIONS.index(current) + (-1 if action == "lb" else 1)
-            self.switch_section(self.SECTIONS[i % len(self.SECTIONS)])
 
     def flash(self, text: str, ms: int = 2600) -> None:
         self.toast.show_message(text, ms)

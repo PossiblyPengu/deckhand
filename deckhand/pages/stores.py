@@ -22,9 +22,9 @@ class StoresPage(Page):
         lay.setContentsMargins(*PAGE_MARGINS)
         lay.setSpacing(12)
         lay.addWidget(label("Game stores", "h1"))
-        lay.addWidget(label("Pick a store to add its app to Steam, then sign in and play its games from there. Heroic "
-                            "and itch are made for Linux; the others are the stores' own Windows apps, installed with "
-                            "Proton. Games whose anti-cheat blocks Linux won't run, whichever store they're from.",
+        lay.addWidget(label("Pick a store to add it to Steam, then sign in and play from there. Heroic and itch are made "
+                            "for Linux; the rest are Windows apps run with Proton. Games with anti-cheat that blocks "
+                            "Linux won't run.",
                             "dim"))
         self.list = QListWidget()
         self.list.setIconSize(QSize(44, 44))
