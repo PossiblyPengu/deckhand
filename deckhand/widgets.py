@@ -129,13 +129,13 @@ class Tile(QPushButton):
         focused = self.hasFocus()
         r = QRectF(self.rect()).adjusted(3, 3, -3, -3)
         card = QPainterPath()
-        card.addRoundedRect(r, 14, 14)
+        card.addRoundedRect(r, 22, 22)
         p.fillPath(card, QColor(theme.SURFACE_HI if focused or self.underMouse() else theme.SURFACE))
 
         art = QRectF(r.x(), r.y(), r.width(), r.height() * 0.62)
         clip = QPainterPath()
         clip.setFillRule(Qt.FillRule.WindingFill)  # union: rounded top corners, square bottom
-        clip.addRoundedRect(art, 14, 14)
+        clip.addRoundedRect(art, 22, 22)
         clip.addRect(QRectF(art.x(), art.y() + 20, art.width(), art.height() - 20))
         p.save()
         p.setClipPath(clip)
@@ -266,7 +266,7 @@ class Sheet(QWidget):
         card = QFrame()
         card.setObjectName("card")
         card.setStyleSheet(f"QFrame#card {{ background: {theme.BG_RAISED}; border: 2px solid {theme.LINE};"
-                           " border-radius: 18px; }")
+                           " border-radius: 30px; }")
         card.setMinimumWidth(min(760, top.width() - 80))
         card.setMaximumWidth(min(980, top.width() - 40))
         card.setMaximumHeight(max(300, top.height() - 40))
@@ -464,7 +464,7 @@ class Toast(QLabel):
     def __init__(self, parent: QWidget):
         super().__init__(parent)
         self.setStyleSheet(f"background: {theme.SURFACE_HI}; color: {theme.TEXT}; border: 2px solid {theme.LINE};"
-                           " border-radius: 14px; padding: 12px 22px; font-size: 18px;")
+                           " border-radius: 24px; padding: 12px 24px; font-size: 18px; font-weight: 700;")
         self.hide()
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)

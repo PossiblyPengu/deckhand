@@ -956,6 +956,18 @@ class TestWindow(Env):
         self.assertIsNone(self.win.thread)
         self.assertIs(self.win.pending, pending)
 
+    def test_the_look_switches_between_dusk_and_cloud_and_is_remembered(self):
+        from deckhand import theme
+        self.assertEqual(theme.SCHEME, "dusk")
+        try:
+            self.win.switch_look()
+            self.assertEqual((theme.SCHEME, theme.BG), ("cloud", theme.SCHEMES["cloud"]["BG"]))
+            self.assertEqual(self.win.paths.state()["look"], "cloud")
+            self.assertIn(theme.SCHEMES["cloud"]["ACCENT"], self.qapp.styleSheet())
+        finally:
+            theme.use("dusk")
+            self.qapp.setStyleSheet(theme.STYLE)
+
     def test_a_program_picked_outside_the_install_keeps_its_folder(self):
         os.environ["FAKE_NOTHING"] = "1"
         own = self.home / "Emulation/roms/windows/Portable Game"  # the user's, from before the install
