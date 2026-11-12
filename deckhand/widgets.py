@@ -117,6 +117,31 @@ def draw_glyph(p: QPainter, r: QRectF, kind: str, color: QColor) -> None:
         flag.lineTo(x + w * 0.82, y + h * 0.52)
         flag.lineTo(x + w * 0.22, y + h * 0.52)
         p.drawPath(flag)
+    elif kind == "alert":  # something went wrong: an exclamation mark
+        p.drawLine(int(x + w / 2), int(y + h * 0.16), int(x + w / 2), int(y + h * 0.6))
+        p.setBrush(color)
+        p.drawEllipse(QPointF(x + w / 2, y + h * 0.82), w * 0.05, h * 0.05)
+    elif kind == "question":
+        q = QPainterPath()
+        q.moveTo(x + w * 0.3, y + h * 0.34)
+        q.cubicTo(x + w * 0.3, y + h * 0.08, x + w * 0.72, y + h * 0.06, x + w * 0.72, y + h * 0.32)
+        q.cubicTo(x + w * 0.72, y + h * 0.5, x + w * 0.5, y + h * 0.5, x + w * 0.5, y + h * 0.64)
+        p.drawPath(q)
+        p.setBrush(color)
+        p.drawEllipse(QPointF(x + w / 2, y + h * 0.84), w * 0.05, h * 0.05)
+    elif kind == "info":
+        p.drawLine(int(x + w / 2), int(y + h * 0.42), int(x + w / 2), int(y + h * 0.84))
+        p.setBrush(color)
+        p.drawEllipse(QPointF(x + w / 2, y + h * 0.2), w * 0.05, h * 0.05)
+    elif kind == "trash":  # removing something: a bin
+        p.drawLine(int(x + w * 0.14), int(y + h * 0.24), int(x + w * 0.86), int(y + h * 0.24))
+        p.drawLine(int(x + w * 0.38), int(y + h * 0.1), int(x + w * 0.62), int(y + h * 0.1))
+        body = QPainterPath()
+        body.moveTo(x + w * 0.24, y + h * 0.24)
+        body.lineTo(x + w * 0.3, y + h * 0.9)
+        body.lineTo(x + w * 0.7, y + h * 0.9)
+        body.lineTo(x + w * 0.76, y + h * 0.24)
+        p.drawPath(body)
     else:  # disc
         p.drawEllipse(r.adjusted(w * 0.05, h * 0.05, -w * 0.05, -h * 0.05))
         p.drawEllipse(r.adjusted(w * 0.4, h * 0.4, -w * 0.4, -h * 0.4))
@@ -195,6 +220,66 @@ class Tile(QPushButton):
         p.end()
 
 
+# What a dialog or a notification is about, and how that looks: (disc colour, glyph). Pastels that read on both looks,
+# with dark ink on them (like the section cards).
+TONES = {
+    "info": ("#b9c7f2", "info"),
+    "question": ("#c9b2f0", "question"),
+    "success": ("#a8d5a2", "check"),
+    "warning": ("#f6c08f", "alert"),
+    "danger": ("#f4a7a0", "trash"),
+    "menu": ("#c9b2f0", "menu"),
+    "update": ("#b9c7f2", "download"),
+}
+INK = "#2f2448"
+
+_FAILED = ("couldn't", "can't", "cannot", "failed", "didn't", "isn't working", "not working", "no admin password",
+           "is needed", "needed", " first", "still running", "wasn't")
+_DONE = ("is installed", "is ready", "uninstalled", "removed", "up to date", "freed", "deleted", "is in your steam",
+         "updated", "added", "saved", "backed up", "restored", "installed")
+
+
+def tone_for(title: str, buttons: tuple[str, ...] = (), danger: tuple[int, ...] = ()) -> str:
+    """Guess what a message is about from its words: something failed, something to confirm, something done…"""
+    t = title.strip().lower()
+    if any(w in t for w in _FAILED):
+        return "warning"
+    if danger:
+        return "danger"
+    if t == "menu" or len(buttons) > 3:
+        return "menu"
+    if t.endswith("?"):
+        return "question"
+    if "available" in t and ("update" in t or t.startswith("deckhand ")):
+        return "update"
+    if "isn't" in t or " not " in f" {t} ":
+        return "info"
+    if any(t.endswith(w) or f"{w} " in t for w in _DONE) or t.startswith("you're up to date"):
+        return "success"
+    return "info"
+
+
+class Badge(QWidget):
+    """A pastel disc with a glyph: says at a glance what a dialog or notification is about."""
+
+    def __init__(self, tone: str = "info", size: int = 64, glyph: str = ""):
+        super().__init__()
+        self.tone = tone if tone in TONES else "info"
+        self.glyph = glyph or TONES[self.tone][1]
+        self.setFixedSize(size, size)
+
+    def paintEvent(self, _e) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(TONES[self.tone][0]))
+        r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        p.drawEllipse(r)
+        inset = r.width() * 0.26
+        draw_glyph(p, r.adjusted(inset, inset, -inset, -inset), self.glyph, QColor(INK))
+        p.end()
+
+
 class Hint(QPushButton):
     """One controller hint in the bottom bar ('Ⓐ Select'). Also tappable."""
 
@@ -267,7 +352,7 @@ class Sheet(QWidget):
 
     def __init__(self, parent: QWidget, title: str, text: str = "", buttons: tuple[str, ...] = ("OK",),
                  primary: int = 0, danger: tuple[int, ...] = (), detail: str = "", field: str | None = None,
-                 value: str = "", secret: bool = False):
+                 value: str = "", secret: bool = False, tone: str = "", glyph: str = ""):
         top = parent.window()
         super().__init__(top)
         self.top = top
@@ -276,6 +361,8 @@ class Sheet(QWidget):
         self._loop: QEventLoop | None = None
         self.setObjectName("sheet")
         self.setGeometry(top.rect())
+        self.tone = tone or tone_for(title, buttons, danger)
+        self._fade = 0.0  # 0 → 1 as it appears
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -289,12 +376,32 @@ class Sheet(QWidget):
         card.setMinimumWidth(min(760, top.width() - 80))
         card.setMaximumWidth(min(980, top.width() - 40))
         card.setMaximumHeight(max(300, top.height() - 40))
+        self.card = card
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(36, 30, 36, 30)
+        lay.setContentsMargins(34, 30, 36, 22)
         lay.setSpacing(16)
-        lay.addWidget(label(title, "h2"))
+        # The heading: a badge that says what this is about (a question, something done, something wrong), the title
+        # and what it means.
+        head = QHBoxLayout()
+        head.setSpacing(22)
+        self.badge = Badge(self.tone, 64, glyph)
+        head.addWidget(self.badge, 0, Qt.AlignmentFlag.AlignTop)
+        words = QVBoxLayout()
+        words.setSpacing(8)
+        words.addWidget(label(title, "h2"))
         if text:
-            lay.addWidget(label(text, "dim"))
+            body = label(text, "dim")
+            body.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+            words.addWidget(body)
+        head.addLayout(words, 1)
+        menu = len(buttons) > 3  # a list of choices: stack them, D-pad up/down
+        keys = QHBoxLayout()
+        keys.setSpacing(4)
+        keys.addWidget(Hint("A", "Choose", self._activate_focused))
+        keys.addWidget(Hint("B", "Back", self.reject))
+        if menu:  # (a tall list: the controller's buttons go beside the title, where there is room)
+            head.addLayout(keys)
+        lay.addLayout(head)
         self.field: QLineEdit | None = None
         self.osk = None  # the on-screen keyboard, when there is one
         self.value = value
@@ -312,14 +419,14 @@ class Sheet(QWidget):
                 lay.addWidget(self.osk)
         if detail:
             box = QPlainTextEdit(detail)
+            box.setObjectName("detail")
             box.setReadOnly(True)
+            box.setStyleSheet(f"QPlainTextEdit#detail {{ background: {theme.CONSOLE}; border: 1px solid {theme.LINE};"
+                              " border-radius: 16px; padding: 10px 12px; font-size: 15px; }")
             box.setMinimumHeight(min(320, max(120, top.height() - 420)))
             lay.addWidget(box, 1)
-        menu = len(buttons) > 3  # a list of choices: stack them, D-pad up/down
         btns = QVBoxLayout() if menu else QHBoxLayout()
         btns.setSpacing(10)
-        if not menu:
-            btns.addStretch(1)
         self.buttons: list[QPushButton] = []
         for i, text_ in enumerate(buttons):
             obj = "primary" if i == primary else ("danger" if i in danger else "")
@@ -327,12 +434,47 @@ class Sheet(QWidget):
             b.setMinimumWidth(170)
             btns.addWidget(b)
             self.buttons.append(b)
-        lay.addLayout(btns)
+        # The buttons, with the controller's buttons beside them (the hint bar is under the dimmed window).
+        foot = QHBoxLayout()
+        foot.setSpacing(12)
+        if menu:
+            foot.addLayout(btns, 1)
+        else:
+            foot.addLayout(keys)
+            foot.addStretch(1)
+            foot.addLayout(btns)
+        lay.addSpacing(4)
+        lay.addLayout(foot)
         row.addWidget(card)
         row.addStretch(1)
         outer.addLayout(row)
         outer.addStretch(1)
         self.hide()
+
+    def _activate_focused(self) -> None:
+        from PyQt6.QtWidgets import QApplication
+
+        w = QApplication.focusWidget()
+        if isinstance(w, QPushButton) and w in self.buttons:
+            w.click()
+        elif self.buttons:
+            self.buttons[self.primary].click()
+
+    def _animate_in(self) -> None:
+        """Fade the dimming in and let the card settle, so a dialog arrives instead of popping up."""
+        from PyQt6.QtCore import QVariantAnimation
+
+        anim = QVariantAnimation(self)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setDuration(160)
+        anim.valueChanged.connect(self._set_fade)
+        anim.start()
+        self._anim = anim
+
+    def _set_fade(self, v) -> None:
+        self._fade = float(v)
+        self.update()
 
     def exec(self) -> int:
         """Show over the window and wait for a choice; everything underneath is disabled meanwhile."""
@@ -349,6 +491,7 @@ class Sheet(QWidget):
         self.setGeometry(self.top.rect())
         self.show()
         self.raise_()
+        self._animate_in()
         if self.osk is not None:
             self.osk.keys[0].setFocus()  # (the D-pad starts on the keys)
         elif self.field is not None:
@@ -390,7 +533,18 @@ class Sheet(QWidget):
 
     def paintEvent(self, _e) -> None:  # noqa: N802
         p = QPainter(self)
-        p.fillRect(self.rect(), QColor(0, 0, 0, 170))
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # Dim the window in the look's own ink (not plain black), more as it fades in.
+        scrim = QColor(10, 8, 22) if theme.SCHEME == "dusk" else QColor(58, 49, 80)
+        scrim.setAlpha(int((185 if theme.SCHEME == "dusk" else 130) * max(self._fade, 0.0)))
+        p.fillRect(self.rect(), scrim)
+        # A soft shadow under the card.
+        c = QRectF(self.card.geometry())
+        if c.isValid():
+            for i, a in enumerate((26, 18, 10)):
+                shadow = QPainterPath()
+                shadow.addRoundedRect(c.adjusted(-4 - i * 4, -2 - i * 3, 4 + i * 4, 10 + i * 5), 34 + i * 4, 34 + i * 4)
+                p.fillPath(shadow, QColor(0, 0, 0, int(a * self._fade)))
         p.end()
 
     def keyPressEvent(self, e) -> None:  # noqa: N802
@@ -490,26 +644,122 @@ class Steps(QWidget):
         p.end()
 
 
-class Toast(QLabel):
-    """A short message that fades in at the bottom of the window."""
+class Notice(QFrame):
+    """One notification card: a badge, the message, and (after a dash or a colon) what to do about it."""
+
+    def __init__(self, parent: QWidget, text: str, tone: str):
+        super().__init__(parent)
+        self.setObjectName("notice")
+        self.setStyleSheet(f"QFrame#notice {{ background: {theme.BG_RAISED}; border: 2px solid {theme.LINE};"
+                           " border-radius: 26px; }")
+        from PyQt6.QtWidgets import QGraphicsDropShadowEffect
+
+        shadow = QGraphicsDropShadowEffect(self)  # (so it stands off whatever is behind it)
+        shadow.setBlurRadius(28)
+        shadow.setOffset(0, 6)
+        shadow.setColor(QColor(0, 0, 0, 90 if theme.SCHEME == "dusk" else 45))
+        self.setGraphicsEffect(shadow)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(14, 12, 24, 12)
+        lay.setSpacing(14)
+        self.badge = Badge(tone, 40)
+        lay.addWidget(self.badge, 0, Qt.AlignmentFlag.AlignVCenter)
+        words = QVBoxLayout()
+        words.setSpacing(2)
+        head, _, rest = text.partition(" — ")
+        self.title = label(head, wrap=True)
+        self.title.setStyleSheet(f"font-size: 18px; font-weight: 800; color: {theme.TEXT};")
+        words.addWidget(self.title)
+        self.more = None
+        if rest:
+            self.more = label(rest, "dim")
+            self.more.setStyleSheet(f"font-size: 15px; color: {theme.TEXT_DIM};")
+            words.addWidget(self.more)
+        lay.addLayout(words, 1)
+        # As wide as the words need (within reason), then as tall as that makes them.
+        f = QFont()
+        f.setPixelSize(18)
+        f.setBold(True)
+        f2 = QFont()
+        f2.setPixelSize(15)
+        need = max(QFontMetrics(f).horizontalAdvance(head) + 12, QFontMetrics(f2).horizontalAdvance(rest))
+        width = int(max(320, min(need + 14 + 40 + 14 + 24 + 8, 720, parent.width() - 80)))
+        self.setFixedWidth(width)
+        self.setFixedHeight(max(64, lay.totalHeightForWidth(width)))
+
+
+class Toast(QWidget):
+    """Notifications: a card that slides up above the hint bar, says what happened, and goes. A new one stacks on top
+    of the last (three at most); the newest is nearest the bottom."""
+
+    MAX = 3
+    BOTTOM = 70  # above the hint bar
 
     def __init__(self, parent: QWidget):
         super().__init__(parent)
-        self.setStyleSheet(f"background: {theme.SURFACE_HI}; color: {theme.TEXT}; border: 2px solid {theme.LINE};"
-                           " border-radius: 24px; padding: 12px 24px; font-size: 18px; font-weight: 700;")
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.notices: list[tuple[Notice, QTimer]] = []
         self.hide()
-        self._timer = QTimer(self)
-        self._timer.setSingleShot(True)
-        self._timer.timeout.connect(self.hide)
 
-    def show_message(self, text: str, ms: int = 2600) -> None:
-        self.setText(text)
-        self.adjustSize()
+    def text(self) -> str:
+        """The newest message (for tests and screen readers)."""
+        if not self.notices:
+            return ""
+        n = self.notices[-1][0]
+        return n.title.text() + (" — " + n.more.text() if n.more is not None else "")
+
+    def show_message(self, text: str, ms: int = 2600, tone: str = "") -> None:
         par = self.parentWidget()
-        self.move((par.width() - self.width()) // 2, par.height() - self.height() - 76)
-        self.raise_()
+        self.setGeometry(par.rect())
+        n = Notice(self, text, tone or tone_for(text))
+        n.setAccessibleName(text)
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(lambda n=n: self._drop(n))
+        timer.start(ms)
+        self.notices.append((n, timer))
+        while len(self.notices) > self.MAX:
+            self._drop(self.notices[0][0])
         self.show()
-        self._timer.start(ms)
+        self.raise_()
+        n.show()
+        self._place(animate_new=n)
+
+    def _drop(self, n: Notice) -> None:
+        for i, (m, t) in enumerate(self.notices):
+            if m is n:
+                t.stop()
+                self.notices.pop(i)
+                m.hide()
+                m.deleteLater()
+                break
+        if self.notices:
+            self._place()
+        else:
+            self.hide()
+
+    def _place(self, animate_new: Notice | None = None) -> None:
+        from PyQt6.QtCore import QPoint, QPropertyAnimation
+
+        y = self.height() - self.BOTTOM
+        for n, _t in reversed(self.notices):
+            y -= n.height()
+            target = QPoint((self.width() - n.width()) // 2, y)
+            old = getattr(n, "_anim", None)
+            if old is not None:
+                old.stop()  # (a slide still running would end in the old place)
+            start = QPoint(target.x(), target.y() + 40) if n is animate_new else n.pos()
+            if start == target:
+                n.move(target)
+            else:  # the new one slides up into place; the others move up to make room
+                n.move(start)
+                anim = QPropertyAnimation(n, b"pos", n)
+                anim.setDuration(180)
+                anim.setStartValue(start)
+                anim.setEndValue(target)
+                anim.start()
+                n._anim = anim
+            y -= 10
 
 
 class Ring(QWidget):

@@ -259,8 +259,9 @@ class MainWindow(QMainWindow):
         elif action in ("lb", "rb"):  # L1 / R1: a screenful up or down the list
             self.page_list(-1 if action == "lb" else 1)
 
-    def flash(self, text: str, ms: int = 2600) -> None:
-        self.toast.show_message(text, ms)
+    def flash(self, text: str, ms: int = 2600, tone: str = "") -> None:
+        """A notification: `tone` (success, warning, info…) is guessed from the words when not given."""
+        self.toast.show_message(text, ms, tone)
 
     # ── install flow ─────────────────────────────────────────────────────
 

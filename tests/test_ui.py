@@ -1760,6 +1760,66 @@ class TestWindow(Env):
             self.assertLessEqual(QFontMetrics(title).horizontalAdvance(card.title), room, card.title)
             self.assertLessEqual(QFontMetrics(detail).horizontalAdvance(card.detail), room * 2 - 20, card.detail)
 
+    def test_dialogs_say_what_they_are_about_at_a_glance(self):
+        from deckhand.widgets import Sheet, tone_for
+        cases = {"Couldn't reach Steam": "warning", "Install failed": "warning", "Close Steam first": "warning",
+                 "Install Cool Game?": "question", "Arcadia uninstalled": "success", "You're up to date": "success",
+                 "Decky Loader is ready": "success", "Deckhand 9.0 is available": "update", "Menu": "menu",
+                 "Nexus Launcher isn't installed": "info", "SteamGridDB art": "info"}
+        for title, tone in cases.items():
+            self.assertEqual(tone_for(title, ("OK",)), tone, title)
+        self.assertEqual(tone_for("Uninstall Arcadia?", ("Uninstall", "Keep"), (0,)), "danger")  # a destructive choice
+        s = Sheet(self.win, "Uninstall Arcadia?", "", ("Uninstall", "Keep"), primary=1, danger=(0,))
+        self.assertEqual((s.badge.tone, s.badge.glyph), ("danger", "trash"))
+        self.assertEqual(Sheet(self.win, "Hello", "", ("OK",), tone="success").badge.tone, "success")  # (or as told)
+        s.deleteLater()
+
+    def test_a_dialog_shows_the_controller_buttons_and_they_work(self):
+        from deckhand.widgets import Hint, Sheet
+        for buttons in (("Install", "Cancel"), ("One", "Two", "Three", "Four", "Five")):  # a question and a menu
+            s = Sheet(self.win, "Pick", "", buttons)
+            hints = {h.glyph: h for h in s.findChildren(Hint)}
+            self.assertEqual(set(hints), {"A", "B"})
+            picked = []
+            s._pick = lambda i, picked=picked: picked.append(i)
+            s.setGeometry(self.win.rect())
+            s.show()
+            s.buttons[1].setFocus()
+            self.pump()
+            hints["A"].click()  # A chooses the button the cursor is on
+            hints["B"].click()  # B backs out
+            self.assertEqual(picked, [1, -1])
+            s.hide()
+            s.deleteLater()
+
+    def test_notifications_stack_newest_at_the_bottom_three_at_most(self):
+        toast = self.win.toast
+        for i in range(5):  # a little apart, as they come in real use (each one's slide still running)
+            self.win.flash(f"Message {i}", ms=60000)
+            end = time.time() + 0.06
+            while time.time() < end:
+                self.pump()
+        end = time.time() + 0.5  # (let the slides finish)
+        while time.time() < end:
+            self.pump()
+        self.assertEqual([n.title.text() for n, _ in toast.notices], ["Message 2", "Message 3", "Message 4"])
+        ys = [n.y() for n, _ in toast.notices]
+        self.assertEqual(ys, sorted(ys))  # the newest is lowest…
+        tops = [n.geometry() for n, _ in toast.notices]
+        for a, b in zip(tops, tops[1:]):
+            self.assertLessEqual(a.bottom(), b.top())  # …and none covers another
+        self.assertLessEqual(tops[-1].bottom(), self.win.height() - self.win.hint_bar.height())  # above the hint bar
+        self.win.flash("Couldn't reach Steam — Close Steam and try again", ms=60000)
+        n = toast.notices[-1][0]
+        self.assertEqual((n.title.text(), n.more.text(), n.badge.tone), ("Couldn't reach Steam", "Close Steam and try again",
+                                                                          "warning"))
+        self.assertEqual(toast.text(), "Couldn't reach Steam — Close Steam and try again")
+
+    def test_a_notification_goes_away_by_itself(self):
+        self.win.flash("Done", ms=50)
+        self.wait_for(lambda: not self.win.toast.notices)
+        self.assertFalse(self.win.toast.isVisible())
+
     def test_there_is_no_shoulder_button_section_switching(self):
         before = self.win.stack.currentWidget()
         self.win.on_action("rb")
