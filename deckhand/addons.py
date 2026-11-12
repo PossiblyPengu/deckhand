@@ -1,7 +1,8 @@
 """Deck add-ons from their official sources.
 
 Nothing is repackaged. Decky's own installer (what decky.xyz links to) is downloaded and run as
-is; it asks for the admin password in its own windows, so it needs Desktop Mode. Arcadia, Deckhand's
+is, with its questions (admin password, release or prerelease, progress) answered from Deckhand's own screens, so
+it works in Game Mode too. Arcadia, Deckhand's
 sister app for retro games, is its AppImage from its GitHub releases, put in ~/Applications and added to
 Steam with a launcher of Deckhand's. GE-Proton
 comes from its GitHub releases (proton.py). The rest are apps from Flathub, installed for this user
@@ -13,9 +14,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -197,8 +200,8 @@ def fetch_decky_installer(dest_dir: Path, fetch: Callable[[str], bytes] | None =
 
 
 def run_decky_installer(script: Path, log: Callable[[str], None] = lambda s: None) -> int:
-    """Run it and wait. It shows its own windows: password, release/prerelease (or update/uninstall
-    when Decky is already there), and progress."""
+    """Run Decky's installer as it is, with its own zenity windows (password, release/prerelease or
+    update/uninstall, progress). Only for Desktop Mode, and as the fallback if run_decky() can't be used."""
     proc = subprocess.Popen(["bash", str(script)], env=core.clean_env(), stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True, errors="replace")
     assert proc.stdout is not None
@@ -207,6 +210,124 @@ def run_decky_installer(script: Path, log: Callable[[str], None] = lambda s: Non
             if line.strip():
                 log(line.rstrip())
     return proc.wait()
+
+
+# Decky's installer talks to you through `zenity` windows: an optional "no password set" question, a password prompt,
+# the branch (or update/uninstall) choice, and progress bars. Everything else it does itself (download, systemd).
+# Deckhand runs that same official script, but points its one `zen_nospam()` helper at this stand-in, which answers
+# from a small file Deckhand wrote and reports progress back on stderr. So Decky is installed by Decky's own
+# installer, in Game Mode as well as on the desktop, and no zenity window is needed.
+DECKY_TEMP_PASSWORD = "Decky!"  # what Decky's installer sets (and removes again) if no password exists
+ZENITY_STAND_IN = r"""#!/bin/bash
+# Deckhand's stand-in for zenity, used only by Decky's installer. $1: the answers file; the rest: zenity's arguments.
+answers="$1"; shift
+mode=""; text=""; prev=""
+for a in "$@"; do
+  case "$a" in
+    --question|--entry|--info|--warning|--error|--list|--progress) mode="${a#--}" ;;
+    --text=*) text="${a#--text=}" ;;
+  esac
+  [ "$prev" = "--text" ] && text="$a"
+  prev="$a"
+done
+case "$mode" in
+  question) [ "$(jq -r '.question' "$answers")" = true ] ;;
+  entry) jq -r '.password' "$answers" ;;
+  list)
+    want="$(jq -r '.option' "$answers")"; found=""
+    for a in "$@"; do [ "$a" = "$want" ] && found=1; done
+    if [ -n "$found" ]; then printf '%s
+' "$want"; else
+      prev=""; for a in "$@"; do if [ "$prev" = TRUE ]; then printf '%s
+' "$a"; break; fi; prev="$a"; done
+    fi ;;
+  progress)
+    while IFS= read -r line; do
+      case "$line" in
+        "#"*) echo "DECKHAND-TEXT ${line#\#}" >&2 ;;
+        [0-9]*) echo "DECKHAND-PROGRESS ${line%%[!0-9]*}" >&2 ;;
+      esac
+    done ;;
+  info|warning|error) echo "DECKHAND-MESSAGE $text" >&2 ;;
+esac
+"""
+_ZEN_FUNCTION = re.compile(r"zen_nospam\(\)\s*\{[ \t]*\n[ \t]*zenity[^\n]*\n[ \t]*\}")
+
+
+def patch_decky_installer(text: str, stand_in: Path, answers: Path) -> str:
+    """Decky's installer with its zenity helper swapped for the stand-in. Raises InstallError("DECKY_CHANGED") if the
+    installer no longer looks the way this expects (then nothing is run that Deckhand can't vouch for)."""
+    if not _ZEN_FUNCTION.search(text):
+        raise core.InstallError("DECKY_CHANGED")
+    call = f'zen_nospam() {{\n  {shlex.quote(str(stand_in))} {shlex.quote(str(answers))} "$@"\n}}'
+    return _ZEN_FUNCTION.sub(lambda _m: call, text, count=1)
+
+
+def admin_password_unset(user: str = "deck") -> bool:
+    """True if the account has no password at all (what SteamOS ships with): `passwd -S` says NP."""
+    try:
+        out = subprocess.run(["passwd", "-S", user], capture_output=True, text=True, timeout=10,
+                             env=core.clean_env()).stdout.split()
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return len(out) > 1 and out[1] == "NP"
+
+
+def sudo_accepts(password: str) -> bool:
+    """Does sudo take this password? (Checked before the installer runs, so a typo is caught on the spot.)"""
+    try:
+        r = subprocess.run(["sudo", "-S", "-k", "true"], input=password + "\n", capture_output=True, text=True,
+                           timeout=30, env=core.clean_env())
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return r.returncode == 0
+
+
+def run_decky(script: Path, option: str, password: str, temporary_password: bool,
+              on_event: Callable[[str, str], None] = lambda kind, value: None,
+              log: Callable[[str], None] = lambda s: None) -> tuple[int, list[str]]:
+    """Run Decky's own installer with its questions answered here. `option`: what its choice list should pick
+    ("release", "prerelease", "update to latest release", "uninstall decky loader", …). `temporary_password`: the
+    person agreed to the temporary password. `on_event("text" | "progress", value)` follows its progress. Returns
+    (exit code, the error/warning messages it showed). The answers (with the password) live in a private folder
+    for the run and are wiped afterwards."""
+    work = Path(tempfile.mkdtemp(prefix="deckhand-decky-"))
+    work.chmod(0o700)
+    answers = work / "answers.json"
+    try:
+        answers.write_text(json.dumps({"password": password, "question": temporary_password, "option": option}),
+                           encoding="utf-8")
+        answers.chmod(0o600)
+        stand_in = work / "zenity"
+        stand_in.write_text(ZENITY_STAND_IN, encoding="utf-8")
+        stand_in.chmod(0o700)
+        patched = work / "install.sh"
+        patched.write_text(patch_decky_installer(script.read_text(encoding="utf-8"), stand_in, answers),
+                           encoding="utf-8")
+        patched.chmod(0o700)
+        proc = subprocess.Popen(["bash", str(patched)], env=core.clean_env(), stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True, errors="replace")
+        messages: list[str] = []
+        assert proc.stdout is not None
+        with proc.stdout:
+            for raw in proc.stdout:
+                line = raw.rstrip()
+                if line.startswith("DECKHAND-PROGRESS "):
+                    on_event("progress", line.split(" ", 1)[1])
+                elif line.startswith("DECKHAND-TEXT "):
+                    on_event("text", line.split(" ", 1)[1].strip())
+                elif line.startswith("DECKHAND-MESSAGE "):
+                    messages.append(line.split(" ", 1)[1].strip())
+                elif line.strip():
+                    log(line)
+        return proc.wait(), messages
+    finally:
+        try:  # wipe the password before the folder goes
+            if answers.exists():
+                answers.write_text("0" * 64)
+        except OSError:
+            pass
+        shutil.rmtree(work, ignore_errors=True)
 
 
 # ── Arcadia ──────────────────────────────────────────────────────────────────

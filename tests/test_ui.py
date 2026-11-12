@@ -707,6 +707,168 @@ class TestWindow(Env):
         self.assertIn("Decky Loader", page.list.item(ids.index("decky")).text())
         self.assertIn("Not installed", page.list.item(ids.index("decky")).text())
 
+    # ── installing everything from Game Mode ─────────────────────────
+
+    def _decky_fakes(self, password_unset=False, accepts="right", installed=False, removes=False):
+        """Decky's installer and the checks around it replaced; returns the list of run_decky() calls."""
+        from unittest import mock
+        from deckhand import addons
+        from deckhand.widgets import Sheet
+        os.environ["XDG_CURRENT_DESKTOP"] = "gamescope"  # Game Mode
+        loader = self.home / "homebrew/services/PluginLoader"
+        if installed:
+            loader.parent.mkdir(parents=True)
+            loader.write_text("")
+        calls, typed = [], []
+
+        def fake_run(script, option, password, temporary, on_event=None, log=None):
+            calls.append((option, password, temporary))
+            if removes:
+                loader.unlink()
+            else:
+                loader.parent.mkdir(parents=True, exist_ok=True)
+                loader.write_text("")
+            return 0, []
+
+        for target, value in ((addons, {"admin_password_unset": lambda user="deck": password_unset,
+                                        "sudo_accepts": lambda pw: pw == accepts,
+                                        "fetch_decky_installer": lambda d, fetch=None: Path("decky.sh"),
+                                        "run_decky": fake_run}),):
+            for name, fn in value.items():
+                patcher = mock.patch.object(target, name, fn)
+                patcher.start()
+                self.addCleanup(patcher.stop)
+        orig = Sheet.ask_text
+        self.passwords = []
+        Sheet.ask_text = staticmethod(lambda parent, title, *a, **k: (
+            self.asked.append(title), (0, self.passwords.pop(0)) if self.passwords else (1, ""))[1])
+        self.addCleanup(lambda: setattr(Sheet, "ask_text", orig))
+        return calls
+
+    def _decky_text(self, page):
+        from deckhand import addons
+        return page.list.item([a.id for a in addons.ADDONS].index("decky")).text()  # (the rows are rebuilt on refresh)
+
+    def _let_it_finish(self):
+        self.wait_for(lambda: not self.win.workers)  # (a window must not go away under a running install)
+
+    def _decky_row(self):
+        from deckhand import addons
+        self.win.go_home()
+        self.win.switch_section("addons")
+        page = self.win.addons
+        return page, page.list.item([a.id for a in addons.ADDONS].index("decky"))
+
+    def test_decky_installs_from_game_mode_with_the_admin_password(self):
+        calls = self._decky_fakes()
+        page, row = self._decky_row()
+        self.passwords = ["wrong", "right"]  # the first is refused, the second taken
+        self.answers = [0]  # Install
+        page._activate(row)
+        self.wait_for(lambda: calls)
+        self.assertEqual(calls, [("release", "right", False)])
+        self.assertEqual(self.asked.count("Admin password"), 2)
+        self.assertNotIn("Switch to Desktop Mode", self.asked)
+        self.wait_for(lambda: "Decky Loader is ready" in self.asked)
+        self._let_it_finish()
+        self.assertIn("Installed", self._decky_text(page))
+
+    def test_with_no_admin_password_the_temporary_one_is_offered(self):
+        calls = self._decky_fakes(password_unset=True)
+        page, row = self._decky_row()
+        self.answers = [0, 0]  # Install; Continue (use the temporary password)
+        page._activate(row)
+        self.wait_for(lambda: calls)
+        self.assertEqual(calls, [("release", "Decky!", True)])
+        self.assertIn("No admin password yet", self.asked)
+        self.assertNotIn("Admin password", self.asked)  # (nothing to type)
+        self._let_it_finish()
+
+    def test_declining_the_temporary_password_stops_before_anything_runs(self):
+        calls = self._decky_fakes(password_unset=True)
+        page, row = self._decky_row()
+        self.answers = [0, 1]  # Install; Cancel
+        page._activate(row)
+        self.pump(10)
+        self.assertEqual(calls, [])
+
+    def test_cancelling_the_password_runs_nothing(self):
+        calls = self._decky_fakes()
+        page, row = self._decky_row()
+        self.passwords = []  # (the stand-in answers "Cancel" when it is asked)
+        self.answers = [0]
+        page._activate(row)
+        self.pump(10)
+        self.assertEqual(calls, [])
+
+    def test_three_wrong_passwords_give_up(self):
+        calls = self._decky_fakes()
+        page, row = self._decky_row()
+        self.passwords = ["a", "b", "c"]
+        self.answers = [0]
+        page._activate(row)
+        self.pump(10)
+        self.assertEqual(calls, [])
+        self.assertEqual(self.asked.count("Admin password"), 4)  # three tries, then the closing message
+
+    def test_the_prerelease_can_be_chosen(self):
+        calls = self._decky_fakes(password_unset=True)
+        page, row = self._decky_row()
+        self.answers = [1, 0]  # Install the prerelease; Continue
+        page._activate(row)
+        self.wait_for(lambda: calls)
+        self.assertEqual(calls[0][0], "prerelease")
+        self._let_it_finish()
+
+    def test_decky_can_be_updated_and_uninstalled_from_game_mode(self):
+        calls = self._decky_fakes(password_unset=True, installed=True, removes=True)
+        page, row = self._decky_row()
+        self.assertIn("Installed", row.text())
+        self.answers = [2, 0]  # Uninstall; Continue
+        page._activate(row)
+        self.wait_for(lambda: calls)
+        self.assertEqual(calls[0][0], "uninstall decky loader")
+        self._let_it_finish()
+        self.assertIn("Not installed", self._decky_text(page))
+
+    def test_wiping_decky_asks_again_first(self):
+        calls = self._decky_fakes(password_unset=True, installed=True)
+        page, row = self._decky_row()
+        self.answers = [3, 1]  # Wipe it; Keep it
+        page._activate(row)
+        self.pump(10)
+        self.assertEqual(calls, [])
+        self.assertIn("Wipe Decky Loader?", self.asked)
+
+    def test_a_desktop_tool_installed_in_game_mode_is_added_to_steam(self):
+        from deckhand import addons
+        self._fake_flatpak()
+        os.environ["XDG_CURRENT_DESKTOP"] = "gamescope"
+        self.win.go_home()
+        self.win.switch_section("addons")
+        page = self.win.addons
+        page.installed = set()  # (what the background check found: nothing)
+        ids = [a.id for a in addons.ADDONS]
+        self.answers = [0]  # Install
+        page._activate(page.list.item(ids.index("protonup-qt")))
+        self.wait_for(lambda: any(a.id == "addon-protonup-qt" for a in core.Library(self.paths).load()))
+        self.assertTrue(core.steam_shortcuts([self.steam]))  # openable from Game Mode
+
+    def test_a_desktop_tool_installed_on_the_desktop_stays_in_the_app_menu(self):
+        from deckhand import addons
+        self._fake_flatpak()
+        for key in ("SteamGamepadUI", "XDG_CURRENT_DESKTOP", "GAMESCOPE_WAYLAND_DISPLAY"):
+            os.environ.pop(key, None)
+        self.win.go_home()
+        self.win.switch_section("addons")
+        page = self.win.addons
+        page.installed = set()
+        self.answers = [0]
+        page._activate(page.list.item([a.id for a in addons.ADDONS].index("protonup-qt")))
+        self.wait_for(lambda: "net.davidotek.pupgui2" in (self.tmp / "fp.db").read_text())
+        self.wait_for(lambda: not self.win.workers)
+        self.assertEqual(core.steam_shortcuts([self.steam]), [])
+
     def test_stores_page_installs_a_windows_store_under_its_own_name(self):
         from deckhand import stores
         from tests.test_addons import FakeResponse
