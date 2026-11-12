@@ -132,8 +132,11 @@ class StreamingPage(Page):
                 return
         need = streaming.needs(svc, installed)
         if need:
-            what = (f"Deckhand installs {streaming.app_name(need)} from Flathub first, the same as Discover would, "
-                    "so Discover keeps it up to date. ")
+            size = streaming.download_note(need)
+            once = (f" ({size}, once: every cloud service shares it)" if size and svc.is_web else
+                    f" ({size})" if size else "")
+            what = (f"Deckhand installs {streaming.app_name(need)} from Flathub first{once}, the same as Discover "
+                    "would, so Discover keeps it up to date. ")
         elif svc.is_web:
             what = f"It opens in {streaming.app_name(streaming.uses(svc, installed))}, which is already installed. "
         else:
@@ -141,7 +144,8 @@ class StreamingPage(Page):
         desktop_note = ("\n\nIn Desktop Mode it opens as a window you can close; STEAM + X opens the keyboard."
                         if svc.is_web else "")
         text = what + f"Then {svc.name} is in your Steam library with its own artwork" + (
-            ", full screen with the controller working." if svc.is_web else ".") + desktop_note
+            ", full screen with the controller working. It keeps its own sign-in, separate from any browser you "
+            "use yourself." if svc.is_web else ".") + desktop_note
         if xbox:  # two ways, each saying exactly which browser it uses and whether that gets installed
             text = (f"• Add to Steam: opens in {self._browser_state(svc, installed, False)}.\n"
                     f"• Add with Better xCloud: opens in {self._browser_state(svc, installed, True)}, with Better "

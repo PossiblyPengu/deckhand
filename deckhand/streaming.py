@@ -22,6 +22,12 @@ FLATHUB = "https://dl.flathub.org/repo/flathub.flatpakrepo"
 CHROME, EDGE, CHROMIUM = "com.google.Chrome", "com.microsoft.Edge", "org.chromium.Chromium"
 BROWSERS = (CHROME, EDGE, CHROMIUM)  # any one of them will do; Chrome is installed if none is
 APP_NAMES = {CHROME: "Google Chrome", EDGE: "Microsoft Edge", CHROMIUM: "Chromium"}
+# About how much each browser downloads from Flathub (from its listing), so people know before it starts.
+BROWSER_DOWNLOAD = {CHROME: 157_000_000, EDGE: 211_000_000, CHROMIUM: 181_000_000}
+# A cloud service set up by Deckhand keeps its own sign-in: the browser is started with its own profile folder, so the
+# service never mixes with the browser you use for everything else, and a browser that is already open can't swallow
+# the full-screen window (a second launch of an open browser just opens a tab in the first one).
+OWN_PROFILE = "own-profile"
 
 # Better xCloud (github.com/redphx/better-xcloud): an optional userscript for Xbox Cloud Gaming
 # (better picture, stream stats, remote play, mouse & keyboard…). It needs nothing from a
@@ -63,6 +69,9 @@ SERVICES = (
             local=("moonlight-qt", "moonlight", "Moonlight*.AppImage"), spot=r"moonlight", color="#3f63d8"),
     Service("chiaki-ng", "chiaki-ng", "Remote Play from your PlayStation", app="io.github.streetpea.Chiaki4deck",
             local=("chiaki-ng", "chiaki", "chiaki*.AppImage"), spot=r"chiaki", color="#1d4fa3"),
+    Service("greenlight", "Greenlight", "Stream from your own Xbox, or Xbox Cloud, in an open-source app",
+            app="io.github.unknownskl.greenlight", local=("greenlight", "Greenlight*.AppImage"), spot=r"greenlight",
+            color="#107c10"),
 )
 
 # Full screen on the Deck's 1280×800 screen, the way Valve's and Microsoft's own Deck guides do it:
@@ -80,6 +89,17 @@ GAME_MODE_TEST = '[ "$SteamGamepadUI" = 1 ] || [ "${XDG_CURRENT_DESKTOP,,}" = ga
 
 def service(service_id: str) -> Service | None:
     return next((s for s in SERVICES if s.id == service_id), None)
+
+
+def profile_dir(browser_id: str, svc: Service, home: Path | None = None) -> Path:
+    """The service's own profile folder, inside the browser's own data folder (which its sandbox can always use)."""
+    return (home or Path.home()) / ".var/app" / browser_id / "data/deckhand" / svc.id
+
+
+def download_note(app_id: str) -> str:
+    """'about 160 MB' for a browser Deckhand would install, '' for anything it has no figure for."""
+    size = BROWSER_DOWNLOAD.get(app_id)
+    return f"about {round(size / 1e6, -1):.0f} MB" if size else ""
 
 
 # ── Flatpak ──────────────────────────────────────────────────────────────────
@@ -330,7 +350,17 @@ def allow_controllers(app_id: str) -> None:
 # ── Launchers and the Steam side ─────────────────────────────────────────────
 
 
-def command(svc: Service, installed: set[str], better_xcloud: bool = False, desktop: bool = False) -> list[str]:
+def web_args(svc: Service, better_xcloud: bool = False, desktop: bool = False, profile: str = "") -> list[str]:
+    """What follows the browser's name on its command line. `profile`: its own profile folder, if it gets one."""
+    ext = [f"--load-extension={better_xcloud_dir()}"] if better_xcloud else []
+    own = [f"--user-data-dir={profile}"] if profile else []
+    if desktop:
+        return [*DESKTOP_BROWSER_ARGS, *own, *ext, *svc.args, f"--app={svc.url}"]
+    return [*BROWSER_ARGS, *own, *ext, *svc.args, svc.url]
+
+
+def command(svc: Service, installed: set[str], better_xcloud: bool = False, desktop: bool = False,
+            own_profile: bool = False) -> list[str]:
     runner = uses(svc, installed, better_xcloud)
     if runner.startswith("local:"):
         return [local_copy(svc) or svc.local[0], *svc.args]
@@ -338,15 +368,32 @@ def command(svc: Service, installed: set[str], better_xcloud: bool = False, desk
         return ["flatpak", "run", svc.native]
     if svc.is_web:
         b = uses(svc, installed, better_xcloud)
-        ext = [f"--load-extension={better_xcloud_dir()}"] if better_xcloud else []
-        if desktop:
-            return ["flatpak", "run", b, *DESKTOP_BROWSER_ARGS, *ext, *svc.args, f"--app={svc.url}"]
-        return ["flatpak", "run", b, *BROWSER_ARGS, *ext, *svc.args, svc.url]
+        profile = str(profile_dir(b, svc)) if own_profile else ""
+        return ["flatpak", "run", b, *web_args(svc, better_xcloud, desktop, profile)]
     return ["flatpak", "run", svc.app, *svc.args]
 
 
+def _browser_picker(svc: Service, baked: str, better_xcloud: bool) -> list[str]:
+    """Bash that settles on the browser when the launcher runs: the one chosen at set-up, else any other that is
+    installed now, else a plain message (instead of Steam showing a game that quietly never starts)."""
+    allowed = (CHROMIUM,) if better_xcloud else BROWSERS  # (Better xCloud only loads in Chromium)
+    others = " ".join(b for b in allowed if b != baked)
+    q = shlex.quote
+    msg = (f"{svc.name} needs a web browser and none is installed. Open Deckhand, go to Game streaming and pick "
+           f"{svc.name} again to set it up.")
+    fallback = ([ 'if ! flatpak info "$B" >/dev/null 2>&1; then', f"  for c in {others}; do",
+                 '    if flatpak info "$c" >/dev/null 2>&1; then B="$c"; break; fi', "  done", "fi"] if others else [])
+    return [f"B={q(baked)}", *fallback,
+            'if ! flatpak info "$B" >/dev/null 2>&1; then',
+            f"  MSG={q(msg)}",
+            '  echo "$MSG"',
+            '  (zenity --error --no-markup --text="$MSG" || kdialog --error "$MSG" || notify-send "Deckhand" "$MSG") '
+            ">/dev/null 2>&1",
+            "  exit 1", "fi"]
+
+
 def write_launcher(svc: Service, paths: core.Paths, installed: set[str], better_xcloud: bool = False,
-                   kind: str = "stream") -> Path:
+                   kind: str = "stream", own_profile: bool = False) -> Path:
     paths.launchers.mkdir(parents=True, exist_ok=True)
     script = paths.launchers / f"{kind}-{svc.id}.sh"
     log = paths.logs / f"{kind}-{svc.id}-launch.log"
@@ -359,7 +406,20 @@ def write_launcher(svc: Service, paths: core.Paths, installed: set[str], better_
         lines.append(f"( curl -fsL --max-time 60 {q(BETTER_XCLOUD_URL)} -o {q(str(d / '.new.js'))} "
                      f"&& grep -q '==UserScript==' {q(str(d / '.new.js'))} "
                      f"&& mv {q(str(d / '.new.js'))} {q(str(d / 'better-xcloud.user.js'))} ) >/dev/null 2>&1 &")
-    if svc.is_web:
+    runner = uses(svc, installed, better_xcloud)
+    if svc.is_web and runner in BROWSERS:
+        def line(desktop: bool) -> str:
+            profile = f"$HOME/.var/app/$B/data/deckhand/{svc.id}" if own_profile else ""
+            args = web_args(svc, better_xcloud, desktop, "@PROFILE@" if own_profile else "")
+            # (the profile folder is the one argument that needs the shell to expand it)
+            return " ".join(f'"{a.replace("@PROFILE@", profile)}"' if "@PROFILE@" in a else q(a) for a in args)
+
+        lines += _browser_picker(svc, runner, better_xcloud)
+        lines += [f"if {GAME_MODE_TEST}; then", f'  exec flatpak run "$B" {line(False)}', "fi",
+                  "# Desktop Mode's only keyboard is Steam's (STEAM + X), which needs Steam running.",
+                  "if ! pgrep -x steam >/dev/null 2>&1 && command -v steam >/dev/null 2>&1; then",
+                  "  (steam -silent >/dev/null 2>&1 &)", "fi", f'exec flatpak run "$B" {line(True)}']
+    elif svc.is_web:
         game_mode = " ".join(q(c) for c in command(svc, installed, better_xcloud))
         desktop = " ".join(q(c) for c in command(svc, installed, better_xcloud, desktop=True))
         lines += [f"if {GAME_MODE_TEST}; then", f"  exec {game_mode}", "fi",
@@ -387,6 +447,8 @@ def set_up(svc: Service, paths: core.Paths, status: Callable[[str], None] = lamb
     if better_xcloud is None:
         better_xcloud = bool(existing and BETTER_XCLOUD in existing.options)
     better_xcloud = better_xcloud and svc.id == "xbox-cloud"
+    # A service set up before profiles existed keeps its shared sign-in (changing it would sign people out).
+    own_profile = svc.is_web and (existing is None or OWN_PROFILE in existing.options)
     installed = detect(installed_apps(), (svc,))
     need = needs(svc, installed, better_xcloud)
     if need:
@@ -404,11 +466,11 @@ def set_up(svc: Service, paths: core.Paths, status: Callable[[str], None] = lamb
     if svc.is_web and uses(svc, installed, better_xcloud) in BROWSERS:
         allow_controllers(uses(svc, installed, better_xcloud))
     status("Adding to Steam…")
-    launcher = write_launcher(svc, paths, installed, better_xcloud, kind)
+    launcher = write_launcher(svc, paths, installed, better_xcloud, kind, own_profile)
     app = existing or core.App(
         id=f"{kind}-{svc.id}", name=svc.name, exe=str(launcher), prefix="", runtime_name="", runtime_kind="",
         runtime_path="", kind=kind)
-    app.options = [BETTER_XCLOUD] if better_xcloud else []
+    app.options = ([BETTER_XCLOUD] if better_xcloud else []) + ([OWN_PROFILE] if own_profile else [])
     app.launcher = app.exe = str(launcher)
     app.installed_at = time.time()
     core.use_logo(app, paths, svc.id)

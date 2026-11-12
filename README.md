@@ -61,7 +61,7 @@ Home → **Game streaming** (or ☰ Menu) adds streaming services to your Steam 
 | Service | How it runs |
 | :--- | :--- |
 | Xbox Cloud Gaming, GeForce NOW, Amazon Luna, Boosteroid | Full screen in Google Chrome (or Microsoft Edge, if you have it), controller enabled |
-| Moonlight (stream from your gaming PC), chiaki-ng (PlayStation Remote Play) | Their own apps |
+| Moonlight (stream from your gaming PC), chiaki-ng (PlayStation Remote Play), Greenlight (your own Xbox, or Xbox Cloud, in an open-source app) | Their own apps |
 
 **Better xCloud** (optional, for Xbox Cloud Gaming): a free add-on ([redphx/better-xcloud](https://github.com/redphx/better-xcloud))
 for a sharper picture, stream stats, Xbox remote play and mouse & keyboard. Choose **Add with Better xCloud**, or turn it on/off
