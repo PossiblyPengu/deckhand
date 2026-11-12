@@ -1,5 +1,5 @@
 {
-  "version": "4.5.0",
-  "sha256": "114ee8f5e5508eec6c1185aec9f10f5f3b161eda7a2511c26618d5ec9c86dbfd",
-  "notes": "Everything Deckhand installs now works from Game Mode. Decky Loader runs its own installer with its questions (admin password, temporary password, release or prerelease, update, uninstall, wipe) asked on Deckhand's screens, so no Desktop Mode switch is needed. Desktop tools such as ProtonUp-Qt, Protontricks, Ludusavi and Flatseal are added to Steam when installed in Game Mode so they can be opened there. Deckhand adds itself to Steam the first time it runs, once. EmuDeck is gone: Arcadia replaces it."
+  "version": "4.5.1",
+  "sha256": "08a28a118d15bb79e7855d89b1db786944eee9b0b43f644620a298415ffdd581",
+  "notes": "Fixes installing Nexus Launcher: Deckhand now finds its download. The project's current release names its files Xodus-Nexus-<version>-<arch>.AppImage, and Deckhand only looked for the newer Nexus-Launcher-\u2026 name, so it said it couldn't find the download. It now accepts both, searches recent releases if the latest has no AppImage, and lists the files it saw when nothing matches."
 }
