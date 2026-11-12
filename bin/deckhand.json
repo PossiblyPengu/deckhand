@@ -1,5 +1,5 @@
 {
-  "version": "4.5.1",
-  "sha256": "08a28a118d15bb79e7855d89b1db786944eee9b0b43f644620a298415ffdd581",
-  "notes": "Fixes installing Nexus Launcher: Deckhand now finds its download. The project's current release names its files Xodus-Nexus-<version>-<arch>.AppImage, and Deckhand only looked for the newer Nexus-Launcher-\u2026 name, so it said it couldn't find the download. It now accepts both, searches recent releases if the latest has no AppImage, and lists the files it saw when nothing matches."
+  "version": "4.6.0",
+  "sha256": "9493da7437a4c32882cf7517670f9d323face55037a1d2b00fedbb83fb38ee2b",
+  "notes": "A new home screen made for the controller: the sidebar is gone. Deckhand opens on six big cards (Start, Install, Stores, Stream, Add-ons, Installed); move with the D-pad, A opens one, B brings you back. Text boxes open Steam's own keyboard in Game Mode, L1/R1 page through long lists, and programs started from Deckhand no longer print Steam overlay errors. Add-on downloads must match their published checksum (Nexus, Arcadia, GE-Proton) and are logged. RetroDECK is no longer offered: Arcadia covers retro games."
 }
