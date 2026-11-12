@@ -93,10 +93,11 @@ class TestWindow(Env):
         self.win.switch_section("start")
         self.assertIs(self.win.stack.currentWidget(), self.win.start)
         ids = [self.win.start.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.win.start.list.count())]
-        self.assertEqual(ids, ["proton", "steam", "stores", "stream", "decky", "arcadia", "program"])
-        before = {st.id: st.done for st in self.win.start.steps}
+        # In the order a new Deck needs them: Game Mode, Proton, then games, then the extras.
+        self.assertEqual(ids, ["steam", "proton", "stores", "program", "arcadia", "stream", "decky"])
+        before = {st.id: st.done for st in self.win.start.steps if not st.optional}
         self.assertFalse(before["arcadia"] or before["program"] or before["stores"])
-        self.assertEqual(self.win.start.ring.total, 7)
+        self.assertEqual(self.win.start.ring.total, 6)  # (Decky is optional: shown, not counted)
         self.shot("0-start", self.win)
 
         apps = self.home / "Applications"
@@ -122,6 +123,31 @@ class TestWindow(Env):
         self.assertIs(self.win.stack.currentWidget(), self.win.home)
         self.win.switch_section("start")
         self.assertIs(self.win.stack.currentWidget(), self.win.start)
+
+    def test_start_counts_only_what_matters_and_opens_on_the_first_thing_left(self):
+        from deckhand import start
+        page = self.win.start
+        self.win.switch_section("start")
+        self.pump()
+        decky = next(st for st in page.steps if st.id == "decky")
+        self.assertTrue(decky.optional)
+        row = [page.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(page.list.count())].index("decky")
+        from deckhand.widgets import PILL_ROLE
+        self.assertEqual(page.list.item(row).data(PILL_ROLE), "Optional")
+        left = start.to_go(page.steps)
+        self.assertEqual(left, sum(not st.done for st in page.steps if st.id != "decky"))
+        self.assertIn(f"{left} step", page.summary.text())
+        first_left = next(st.id for st in page.steps if not st.done and not st.optional)
+        self.assertEqual(page.list.currentItem().data(Qt.ItemDataRole.UserRole), first_left)
+        self.win.go_hub()
+        self.pump()
+        self.assertIn(f"{left} step", self.win.hub.cards["start"].detail)  # the home screen agrees
+
+    def test_without_proton_the_program_step_says_to_do_proton_first(self):
+        from deckhand import start
+        steps = {st.id: st for st in start.steps(self.paths, roots=[], exe=None, entries=[])}
+        self.assertFalse(steps["proton"].done)
+        self.assertIn("Proton first", steps["program"].detail)
 
     def test_home_shows_found_installers(self):
         self.shot("1-home-empty")

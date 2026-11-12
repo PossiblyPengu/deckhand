@@ -15,6 +15,12 @@ class Step:
     detail: str
     done: bool
     glyph: str
+    optional: bool = False  # nice to have: shown, but not counted in "steps to go"
+
+
+def to_go(steps: list[Step]) -> int:
+    """How many of the steps that count are left."""
+    return sum(not st.done and not st.optional for st in steps)
 
 
 def self_exe() -> Path | None:
@@ -39,21 +45,24 @@ def steps(paths: core.Paths, roots: Iterable[Path] | None = None, home: Path | N
         stores.spots(s, entries, paths.launchers) for s in stores.STORES)
     stream = "stream" in kinds or any(streaming.spots(s, entries, paths.launchers) for s in streaming.SERVICES)
     in_steam = bool(exe and core.find_shortcut(str(exe), entries=entries))
+    # In the order a new Deck needs them: open Deckhand from Game Mode, the Proton that Windows games run on, then
+    # games (stores first: most people have a library already), then the extras.
     return [
+        Step("steam", "Deckhand in Game Mode",
+             "In your Steam library: open it from Game Mode" if in_steam
+             else "Add Deckhand to your Steam library, so you can open it from Game Mode", in_steam, "stack"),
         Step("proton", "Proton for Windows games",
-             f"Ready: {protons[0].name}" if protons else "Install Proton Experimental or GE-Proton",
+             f"Ready: {protons[0].name}" if protons else "Windows games and stores run on it: get GE-Proton",
              bool(protons), "plus"),
-        Step("steam", "Deckhand in your Steam library",
-             "Open Deckhand from Game Mode" if in_steam else "So you can open Deckhand from Game Mode",
-             in_steam, "stack"),
-        Step("stores", "A game store", "Epic and GOG (Heroic), Battle.net, EA, Ubisoft and more",
+        Step("stores", "Your game stores", "Epic and GOG (Heroic), Battle.net, EA, Ubisoft and more: your games in Steam",
              store, "bag"),
-        Step("stream", "Game streaming", "Xbox Cloud Gaming, GeForce NOW, Moonlight, PlayStation Remote Play…",
-             stream, "signal"),
-        Step("decky", "Decky Loader", "Plugins for the Quick Access menu",
-             addons.decky_version(home) is not None, "plus"),
+        Step("program", "A Windows game or program",
+             "Pick a setup file; it ends up in Steam" if protons else "Do Proton first, then pick a setup file",
+             "program" in kinds, "download"),
         Step("arcadia", "Retro games with Arcadia", "Deckhand's sister app: ROMs, emulators, BIOS and saves",
              addons.arcadia_app(home) is not None, "disc"),
-        Step("program", "Your first Windows program", "Pick a setup file; it ends up in Steam",
-             "program" in kinds, "download"),
+        Step("stream", "Game streaming", "Xbox Cloud Gaming, GeForce NOW, Moonlight, PlayStation Remote Play…",
+             stream, "signal"),
+        Step("decky", "Decky Loader", "Optional: plugins for the Quick Access menu",
+             addons.decky_version(home) is not None, "plus", optional=True),
     ]

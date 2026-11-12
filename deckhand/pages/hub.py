@@ -141,7 +141,7 @@ class HubPage(Page):
 
     def refresh(self) -> None:
         self.refresh_space()
-        left = sum(not s.done for s in start.steps(self.win.paths, exe=start.self_exe()))
+        left = start.to_go(start.steps(self.win.paths, exe=start.self_exe()))
         self.cards["start"].set_detail(f"{left} step{'s' * (left != 1)} to go" if left else "All set up")
         count = len(self.win.library.load())
         self.cards["installed"].set_detail(f"{count} program{'s' * (count != 1)}" if count else "Nothing installed yet")

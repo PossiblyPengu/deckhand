@@ -52,15 +52,15 @@ class StartPage(Page):
             icon = glyph_icon("check", theme.GREEN) if st.done else glyph_icon(st.glyph, theme.ACCENT)
             it = QListWidgetItem(icon, f"{st.title}\n{st.detail}")
             it.setData(Qt.ItemDataRole.UserRole, st.id)
-            set_pill(it, "Done" if st.done else "To do", "done" if st.done else "todo")
+            set_pill(it, "Done" if st.done else "Optional" if st.optional else "To do", "done" if st.done else "todo")
             self.list.addItem(it)
-        done = sum(st.done for st in self.steps)
-        self.ring.set_progress(done, len(self.steps))
-        left = len(self.steps) - done
+        counted = [st for st in self.steps if not st.optional]
+        left = start.to_go(self.steps)
+        self.ring.set_progress(len(counted) - left, len(counted))
         self.summary.setText("Your Deck is set up. Play everything from your Steam library." if not left else
-                             f"{left} step{'s' * (left != 1)} to go. Do them in any order.")
+                             f"{left} step{'s' * (left != 1)} to go. Top to bottom works best.")
         if first:
-            row = next((i for i, st in enumerate(self.steps) if not st.done), 0)
+            row = next((i for i, st in enumerate(self.steps) if not st.done and not st.optional), 0)
         self.list.setCurrentRow(min(row, self.list.count() - 1))
 
     def _activate(self, item: QListWidgetItem) -> None:
