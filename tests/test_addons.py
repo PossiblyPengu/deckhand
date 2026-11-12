@@ -77,6 +77,85 @@ class TestAddons(Env):
             addons.emudeck_release(lambda url: json.dumps({"tag_name": "v1", "assets": []}).encode())
 
 
+ARCADIA_BODY = b"\x7fELF" + b"\0" * 4000
+
+
+def arcadia_release(body: bytes = ARCADIA_BODY, digest: str | None = None) -> bytes:
+    import hashlib
+    return json.dumps({"tag_name": "v0.1.0", "assets": [
+        {"name": "arcadia-deck-extras.tar.gz", "browser_download_url": "x"},
+        {"name": addons.ARCADIA_APPIMAGE, "browser_download_url": "https://example.invalid/Arcadia.AppImage",
+         "digest": digest or "sha256:" + hashlib.sha256(body).hexdigest()}]}).encode()
+
+
+class TestArcadia(Env):
+    def test_the_sister_app_comes_first(self):
+        self.assertEqual(addons.ADDONS[0].id, "arcadia")
+
+    def test_arcadia_is_downloaded_checked_and_added_to_steam_once(self):
+        a = addons.addon("arcadia")
+        self.assertEqual(addons.status(a), "Not installed")
+        version = addons.download_arcadia(fetch=lambda url: arcadia_release(), opener=lambda url: FakeResponse(ARCADIA_BODY))
+        self.assertEqual(version, "0.1.0")
+        appimage = self.home / "Applications" / addons.ARCADIA_APPIMAGE
+        self.assertEqual(appimage.read_bytes(), ARCADIA_BODY)
+        self.assertTrue(os.access(appimage, os.X_OK))
+        self.assertEqual(addons.status(a), "Installed")
+        app = addons.set_up_arcadia(self.paths, roots=[self.steam])
+        self.assertEqual((app.id, app.kind, app.exe), ("addon-arcadia", "addon", str(appimage)))
+        self.assertIn(str(appimage), Path(app.launcher).read_text())
+        self.assertTrue(core.in_steam(app, [self.steam]))
+        self.assertEqual(Path(app.icon).name, "addon-arcadia.png")
+        addons.set_up_arcadia(self.paths, roots=[self.steam])
+        self.assertEqual(len(core.steam_shortcuts([self.steam])), 1)
+        # Uninstalling removes the AppImage and the shortcut, never Arcadia's settings.
+        (self.home / "Arcadia").mkdir()
+        self.assertFalse(addons.uninstall_arcadia(app, self.paths, roots=[self.steam]))
+        self.assertFalse(appimage.exists())
+        self.assertEqual(core.steam_shortcuts([self.steam]), [])
+        self.assertTrue((self.home / "Arcadia").is_dir())
+
+    def test_an_arcadia_already_in_steam_gets_no_second_shortcut(self):
+        apps = self.home / "Applications"
+        apps.mkdir()
+        mine = apps / "Arcadia-0.1.AppImage"
+        mine.write_bytes(ARCADIA_BODY)
+        self.assertEqual(addons.arcadia_app(), mine)
+        appid, _how = core.add_shortcut("Arcadia", str(mine), str(apps), roots=[self.steam], running=False)
+        app = addons.set_up_arcadia(self.paths, roots=[self.steam])
+        self.assertEqual(addons.arcadia_shortcut_of_yours([self.steam]), appid)
+        self.assertEqual(app.steam_appid, 0)  # not adopted: it's yours
+        self.assertEqual(len(core.steam_shortcuts([self.steam])), 1)
+        # Uninstalling Arcadia never takes away a shortcut you made, even with Steam closed.
+        addons.uninstall_arcadia(app, self.paths, roots=[self.steam])
+        self.assertFalse(mine.exists())
+        self.assertEqual([core._entry_appid(e) for _c, e in core.steam_shortcuts([self.steam])], [appid])
+
+    def test_uninstall_removes_every_arcadia_appimage(self):
+        apps = self.home / "Applications"
+        apps.mkdir()
+        for name in (addons.ARCADIA_APPIMAGE, addons.ARCADIA_APPIMAGE + ".previous", "Arcadia-0.1.AppImage"):
+            (apps / name).write_bytes(ARCADIA_BODY)
+        self.assertEqual(addons.arcadia_app(), apps / addons.ARCADIA_APPIMAGE)
+        addons.uninstall_arcadia(None, self.paths, roots=[self.steam])
+        self.assertEqual(list(apps.iterdir()), [])
+        self.assertEqual(addons.status(addons.addon("arcadia")), "Not installed")
+
+    def test_a_download_that_fails_its_checksum_keeps_the_old_arcadia(self):
+        apps = self.home / "Applications"
+        apps.mkdir()
+        (apps / addons.ARCADIA_APPIMAGE).write_bytes(b"OLD")
+        with self.assertRaises(core.InstallError):
+            addons.download_arcadia(fetch=lambda url: arcadia_release(digest="sha256:" + "0" * 64),
+                                    opener=lambda url: FakeResponse(ARCADIA_BODY))
+        self.assertEqual([p.name for p in apps.iterdir()], [addons.ARCADIA_APPIMAGE])
+        self.assertEqual((apps / addons.ARCADIA_APPIMAGE).read_bytes(), b"OLD")
+
+    def test_no_arcadia_release_yet_is_explained(self):
+        with self.assertRaises(core.InstallError):
+            addons.arcadia_release(lambda url: json.dumps({"tag_name": "v1", "assets": []}).encode())
+
+
 class TestFlathubAddons(FlatpakEnv):
     def test_a_game_mode_app_is_installed_and_added_to_steam(self):
         from deckhand import streaming
