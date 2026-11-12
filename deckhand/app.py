@@ -34,10 +34,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from . import (__version__, addons, artwork, cleanup, core, fixes, proton, saves, steamgriddb, stores, streaming,
-               theme, updater)
+from . import (__version__, addons, artwork, cleanup, core, fixes, proton, saves, start, steamgriddb, stores,
+               streaming, theme, updater)
 from .nav import Nav
-from .widgets import ElideLabel, HintBar, Sheet, Steps, Tile, Toast, breakable, button, draw_glyph, label
+from .widgets import (PILL_ROLE, TONE_ROLE, CardDelegate, ElideLabel, HintBar, Ring, Sheet, Steps, Tile, Toast,
+                      breakable, button, draw_glyph, label)
 
 COLUMNS = 4  # tiles per row next to the rail
 PAGE_MARGINS = (40, 30, 40, 22)  # every page lines up with the rail's wordmark
@@ -85,6 +86,19 @@ def on_choose(lst: QListWidget, handler: Callable[[QListWidgetItem], None]) -> N
     lst.itemClicked.connect(clicked)
     lst.itemDoubleClicked.connect(lambda _i: state.update(double=True))
     lst.itemActivated.connect(activated)
+
+
+def set_pill(item: QListWidgetItem, text: str, tone: str = "todo") -> None:
+    """The status pill on a card row (see CardDelegate): "done" is green."""
+    item.setData(PILL_ROLE, text)
+    item.setData(TONE_ROLE, tone)
+
+
+def select_row(lst: QListWidget, key: str) -> None:
+    for i in range(lst.count()):
+        if lst.item(i).data(Qt.ItemDataRole.UserRole) == key:
+            lst.setCurrentRow(i)
+            return
 
 
 def app_icon() -> QIcon:
@@ -256,6 +270,34 @@ class Page(QWidget):
     def scroll_area(self) -> QScrollArea | None:
         return self.findChild(QScrollArea)
 
+    def add_banner(self, lay: QVBoxLayout) -> None:
+        """The "new Deckhand is out" banner (on Start and Install)."""
+        self.banner = QFrame()
+        self.banner.setObjectName("banner")
+        self.banner.setStyleSheet(f"QFrame#banner {{ background: {theme.SURFACE}; border: 2px solid {theme.ACCENT};"
+                                  " border-radius: 22px; }")
+        b = QHBoxLayout(self.banner)
+        b.setContentsMargins(20, 10, 12, 10)
+        self.banner_text = ElideLabel(mode=Qt.TextElideMode.ElideRight)
+        b.addWidget(self.banner_text)
+        b.addStretch(1)
+        self.update_btn = button("Update now", "primary", lambda: self.win.start_update())
+        b.addWidget(self.update_btn)
+        b.addWidget(button("Later", slot=self.hide_banner))
+        self.banner.hide()
+        lay.addWidget(self.banner)
+
+    def show_banner(self, update: updater.Update) -> None:
+        self.banner_text.setText(f"Deckhand {update.version} is available  ·  you have {__version__}")
+        self.banner.show()
+
+    def hide_banner(self) -> None:
+        focused = self.banner.isAncestorOf(QApplication.focusWidget())
+        self.win.hide_banners()
+        self.win.update_dismissed = True
+        if focused:
+            self.enter()
+
     def show_progress(self, pct: int) -> None:
         """For pages with a `bar`: a percentage, -1 for busy, or None to hide it."""
         bar = getattr(self, "bar", None)
@@ -268,6 +310,78 @@ class Page(QWidget):
         if pct >= 0:
             bar.setValue(pct)
         bar.show()
+
+
+class StartPage(Page):
+    """Everything a new Deck needs, as a checklist like Arcadia's Setup: what's done, and the way to the rest."""
+
+    title = "Start"
+
+    def __init__(self, win):
+        super().__init__(win)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(*PAGE_MARGINS)
+        lay.setSpacing(12)
+        lay.addWidget(label("Get started", "h1"))
+        lay.addWidget(label("What a new Steam Deck needs, in one list. Deckhand sets up Windows games, game stores "
+                            "and streaming; its sister app Arcadia does retro games. Pick a step to do it.", "dim"))
+        self.add_banner(lay)
+        lay.addSpacing(6)
+        row = QHBoxLayout()
+        row.setSpacing(28)
+        side = QVBoxLayout()
+        side.setSpacing(10)
+        self.ring = Ring()
+        side.addWidget(self.ring, 0, Qt.AlignmentFlag.AlignHCenter)
+        self.summary = label("", "muted")
+        self.summary.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.summary.setFixedWidth(self.ring.width())
+        side.addWidget(self.summary)
+        side.addStretch(1)
+        row.addLayout(side)
+        self.list = QListWidget()
+        self.list.setIconSize(QSize(44, 44))
+        on_choose(self.list, self._activate)
+        row.addWidget(self.list, 1)
+        lay.addLayout(row, 1)
+        self.steps: list[start.Step] = []
+
+    def refresh(self) -> None:
+        first = not self.steps
+        self.steps = start.steps(self.win.paths, exe=start.self_exe())
+        row = max(0, self.list.currentRow())
+        self.list.clear()
+        for st in self.steps:
+            icon = glyph_icon("check", theme.GREEN) if st.done else glyph_icon(st.glyph, theme.ACCENT)
+            it = QListWidgetItem(icon, f"{st.title}\n{st.detail}")
+            it.setData(Qt.ItemDataRole.UserRole, st.id)
+            set_pill(it, "Done" if st.done else "To do", "done" if st.done else "todo")
+            self.list.addItem(it)
+        done = sum(st.done for st in self.steps)
+        self.ring.set_progress(done, len(self.steps))
+        left = len(self.steps) - done
+        self.summary.setText("Your Deck is set up. Play everything from your Steam library." if not left else
+                             f"{left} step{'s' * (left != 1)} to go. Do them in any order.")
+        if first:
+            row = next((i for i, st in enumerate(self.steps) if not st.done), 0)
+        self.list.setCurrentRow(min(row, self.list.count() - 1))
+
+    def _activate(self, item: QListWidgetItem) -> None:
+        win = self.win
+        {"proton": lambda: win.open_addon("ge-proton"), "steam": win.add_self_to_steam,
+         "stores": win.show_stores, "stream": win.show_streaming, "decky": lambda: win.open_addon("decky"),
+         "arcadia": lambda: win.open_addon("arcadia"), "program": win.go_home,
+         }.get(item.data(Qt.ItemDataRole.UserRole), lambda: None)()
+
+    def enter(self) -> None:
+        self.refresh()
+        self.list.setFocus()
+
+    def hints(self):
+        return [("A", "Select", self.win.nav_activate), ("☰", "Menu", self.win.open_menu)]
+
+    def back(self) -> None:
+        pass
 
 
 class HomePage(Page):
@@ -290,20 +404,7 @@ class HomePage(Page):
         lay.addWidget(label("Install a Windows program", "h1"))
         lay.addWidget(label("Pick a setup file. Deckhand installs it and adds the program to your "
                             "Steam library.", "dim"))
-        self.banner = QFrame()
-        self.banner.setObjectName("banner")
-        self.banner.setStyleSheet(f"QFrame#banner {{ background: {theme.SURFACE}; border: 2px solid {theme.ACCENT};"
-                                  " border-radius: 22px; }")
-        b = QHBoxLayout(self.banner)
-        b.setContentsMargins(20, 10, 12, 10)
-        self.banner_text = ElideLabel(mode=Qt.TextElideMode.ElideRight)
-        b.addWidget(self.banner_text)
-        b.addStretch(1)
-        self.update_btn = button("Update now", "primary", lambda: self.win.start_update())
-        b.addWidget(self.update_btn)
-        b.addWidget(button("Later", slot=self.hide_banner))
-        self.banner.hide()
-        lay.addWidget(self.banner)
+        self.add_banner(lay)
         lay.addSpacing(10)
         self.section = label("", "section")
         lay.addWidget(self.section)
@@ -380,17 +481,6 @@ class HomePage(Page):
     def enter(self) -> None:
         self.refresh()
         (self.tiles[1] if len(self.tiles) > 1 else self.tiles[0]).setFocus()
-
-    def show_banner(self, update: updater.Update) -> None:
-        self.banner_text.setText(f"Deckhand {update.version} is available  ·  you have {__version__}")
-        self.banner.show()
-
-    def hide_banner(self) -> None:
-        focused = self.banner.isAncestorOf(QApplication.focusWidget())
-        self.banner.hide()
-        self.win.update_dismissed = True
-        if focused:
-            (self.tiles[1] if len(self.tiles) > 1 else self.tiles[0]).setFocus()
 
     def hints(self):
         return [("A", "Select", self.win.nav_activate), ("X", "Browse", self.x), ("☰", "Menu", self.win.open_menu)]
@@ -854,8 +944,10 @@ class InstalledPage(Page):
         self.list.setIconSize(QSize(44, 44))
         on_choose(self.list, self._activate)
         lay.addWidget(self.list, 1)
-        self.empty = label("Nothing installed with Deckhand yet.", "muted")
-        lay.addWidget(self.empty)
+        self.empty = label("Nothing installed with Deckhand yet. Install a Windows program, or set up a game store, "
+                           "a streaming service or an add-on: they're listed here afterwards.", "muted")
+        self.empty.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        lay.addWidget(self.empty, 1)  # (takes the list's room while there's no list)
         self.status = label("", "muted")
         lay.addWidget(self.status)
         self.bar = QProgressBar()
@@ -882,6 +974,8 @@ class InstalledPage(Page):
             it.setIcon(QIcon(QPixmap.fromImage(icon)) if icon is not None
                        else badge_icon(app.name, artwork.accent_color(app.name).name()))
             it.setData(Qt.ItemDataRole.UserRole, app.id)
+            state = self.steam.get(app.id, "out")
+            set_pill(it, STEAM_STATE[state], "done" if state == "in" else "todo")
             self.list.addItem(it)
         busy = self.win.pending.compat_dir if self.win.pending else None
         self.leftovers = {f"leftover:{d.name}": d for d in core.orphan_prefixes(self.win.paths) if d != busy}
@@ -889,6 +983,7 @@ class InstalledPage(Page):
             it = QListWidgetItem(self._leftover_text(key))
             it.setIcon(glyph_icon("disc"))
             it.setData(Qt.ItemDataRole.UserRole, key)
+            set_pill(it, "Unfinished", "busy")
             self.list.addItem(it)
         shown = bool(apps or self.leftovers)
         self.list.setVisible(shown)
@@ -1048,6 +1143,13 @@ class StoresPage(Page):
         for s in stores.STORES:
             it = QListWidgetItem(logo_icon(s.id, s.name, s.color), self._text(s))
             it.setData(Qt.ItemDataRole.UserRole, s.id)
+            if s.id in self.apps:
+                state = self.steam.get(s.id, "out")
+                set_pill(it, STEAM_STATE[state], "done" if state == "in" else "todo")
+            elif self.outside.get(s.id):
+                set_pill(it, "In Steam", "done")
+            else:
+                set_pill(it, "Not installed" if s.is_windows else "Not added yet")
             self.list.addItem(it)
         self.list.setCurrentRow(min(row, self.list.count() - 1))
         if self.installed is None and not self.win.busy_with_quietly("store-flatpaks"):
@@ -1211,8 +1313,14 @@ class StreamingPage(Page):
         row = max(0, self.list.currentRow())
         self.list.clear()
         for svc in streaming.SERVICES:
-            it = QListWidgetItem(logo_icon(svc.id, svc.name, svc.color), self._text(svc, apps.get(f"stream-{svc.id}")))
+            app = apps.get(f"stream-{svc.id}")
+            it = QListWidgetItem(logo_icon(svc.id, svc.name, svc.color), self._text(svc, app))
             it.setData(Qt.ItemDataRole.UserRole, svc.id)
+            if app is not None:
+                state = self.steam.get(app.id, "out")
+                set_pill(it, STEAM_STATE[state], "done" if state == "in" else "todo")
+            else:
+                set_pill(it, "In Steam", "done") if self.outside.get(svc.id) else set_pill(it, "Not added yet")
             self.list.addItem(it)
         self.list.setCurrentRow(min(row, self.list.count() - 1))
         if self.installed is not None:
@@ -1381,6 +1489,10 @@ class AddonsPage(Page):
             parts.append(f"from {a.site}")
             it = QListWidgetItem(logo_icon(a.id, a.name, a.color), f"{a.name}\n" + "  ·  ".join(parts))
             it.setData(Qt.ItemDataRole.UserRole, a.id)
+            st = parts[1]
+            set_pill(it, "Checking…" if st == "…" else st.split(" (")[0],
+                     "done" if st.startswith(("Installed", "Set up")) else "busy" if st.startswith("Downloaded")
+                     else "todo")
             self.list.addItem(it)
         self.list.setCurrentRow(min(row, self.list.count() - 1))
         if self.installed is None and not self.win.busy_with_quietly("addon-flatpaks"):
@@ -1851,6 +1963,7 @@ class MainWindow(QMainWindow):
         v.addWidget(self.hint_bar)
         self.toast = Toast(self)  # on the window itself, so it stays visible over sheets
 
+        self.start = StartPage(self)
         self.home = HomePage(self)
         self.browser = BrowserPage(self)
         self.progress = InstallPage(self)
@@ -1861,13 +1974,17 @@ class MainWindow(QMainWindow):
         self.stores = StoresPage(self)
         self.streaming = StreamingPage(self)
         self.addons = AddonsPage(self)
-        for p in (self.home, self.browser, self.progress, self.pick, self.done, self.updating, self.installed,
+        for p in (self.start, self.home, self.browser, self.progress, self.pick, self.done, self.updating, self.installed,
                   self.stores, self.streaming, self.addons):
             self.stack.addWidget(p)
 
         for lst in self.findChildren(QListWidget):
             lst.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             lst.setWordWrap(True)
+        for lst in (self.start.list, self.stores.list, self.streaming.list, self.addons.list, self.installed.list):
+            lst.setItemDelegate(CardDelegate(lst))
+            lst.setMouseTracking(True)
+            lst.setSpacing(2)
         self.nav = Nav(QApplication.instance(), self.on_action, busy=lambda: self.thread is not None) \
             if use_nav else None
         # A bound method (not a lambda): Qt disconnects it automatically when the window goes away.
@@ -1876,7 +1993,7 @@ class MainWindow(QMainWindow):
         ensure_app_icon()
         self.sync_steam_ids()
         self.add_logos()
-        self.go(self.home)
+        self.go(self.start)
         dupes = core.find_duplicate_shortcuts(None, self.paths.launchers)
         if dupes:
             self.flash(f"Steam has {len(dupes)} duplicate shortcut{'s' * (len(dupes) != 1)} — "
@@ -1888,7 +2005,7 @@ class MainWindow(QMainWindow):
             self.check_for_updates(manual=False)
 
     # chrome
-    SECTIONS = ("install", "stores", "stream", "addons", "installed")
+    SECTIONS = ("start", "install", "stores", "stream", "addons", "installed")
 
     def _rail(self) -> QWidget:
         """Deckhand's sections down the left: tap them, or switch with L1/R1."""
@@ -1903,7 +2020,7 @@ class MainWindow(QMainWindow):
         mark.setContentsMargins(24, 0, 0, 18)
         v.addWidget(mark)
         self.stations: dict[str, QPushButton] = {}
-        for key, text, glyph in (("install", "Install", "download"), ("stores", "Stores", "bag"),
+        for key, text, glyph in (("start", "Start", "flag"), ("install", "Install", "download"), ("stores", "Stores", "bag"),
                                  ("stream", "Stream", "signal"), ("addons", "Add-ons", "plus"),
                                  ("installed", "Installed", "stack")):
             b = QPushButton(text)
@@ -1935,6 +2052,8 @@ class MainWindow(QMainWindow):
         return rail
 
     def section_of(self, page: QWidget) -> str | None:
+        if page is self.start:
+            return "start"
         if page is self.stores:
             return "stores"
         if page is self.streaming:
@@ -1949,14 +2068,14 @@ class MainWindow(QMainWindow):
 
     def switch_section(self, key: str) -> None:
         current = self.section_of(self.stack.currentWidget())
-        if key == current and self.stack.currentWidget() in (self.home, self.stores, self.streaming, self.addons,
+        if key == current and self.stack.currentWidget() in (self.start, self.home, self.stores, self.streaming, self.addons,
                                                              self.installed):
             self._sync_stations()
             return
         if self.must_stay():
             self._sync_stations()
             return
-        {"install": self.go_home, "stores": self.show_stores, "stream": self.show_streaming,
+        {"start": self.show_start, "install": self.go_home, "stores": self.show_stores, "stream": self.show_streaming,
          "addons": self.show_addons, "installed": self.show_installed}[key]()
 
     def must_stay(self) -> bool:
@@ -1995,6 +2114,19 @@ class MainWindow(QMainWindow):
 
     def go_home(self) -> None:
         self.go(self.home)
+
+    def show_start(self) -> None:
+        self.go(self.start)
+
+    def hide_banners(self) -> None:
+        for page in (self.start, self.home):
+            page.banner.hide()
+
+    def open_addon(self, addon_id: str) -> None:
+        """The Add-ons section, with that add-on picked (A then opens it)."""
+        self.show_addons()
+        if self.stack.currentWidget() is self.addons:
+            select_row(self.addons.list, addon_id)
 
     def nav_activate(self) -> None:
         if self.nav:
@@ -2849,6 +2981,7 @@ class MainWindow(QMainWindow):
             self.update_info = update
             if manual or not self.update_dismissed:
                 self.home.show_banner(update)
+                self.start.show_banner(update)
             if manual and Sheet.ask(self, f"Deckhand {update.version} is available",
                                     (update.notes + "\n\n" if update.notes else "") + f"You have {__version__}.",
                                     ("Update now", "Later")) == 0:
@@ -2887,7 +3020,7 @@ class MainWindow(QMainWindow):
             self.go_home()
 
     def on_update_installed(self) -> None:
-        self.home.banner.hide()
+        self.hide_banners()
         self.updating.on_done()
 
     def on_update_failed(self, message: str) -> None:

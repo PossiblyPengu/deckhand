@@ -10,7 +10,15 @@ Deckhand is an installer, not a launcher: once something is installed you play i
 2. Click through the installer as usual.
 3. Done: the program is in your Steam library, with its icon and library artwork.
 
-Built for the Deck: five sections down the left (**Install · Stores · Stream · Add-ons · Installed**, switch with **L1/R1** or tap), full controller support (D-pad/stick to move, **A** select, **B** back, **X** browse, **☰** menu), big touch targets, button hints along the bottom, and full screen in Game Mode. It shares its look with its sister app [Arcadia](https://github.com/PossiblyPengu/arcadia) (Arcadia's `DESIGN.md`: soft pastels, rounded cards and pill buttons, Nunito and Fraunces). Dusk, the dark scheme, is the default; **☰ Menu → Light look** switches to Cloud.
+Built for the Deck: six sections down the left (**Start · Install · Stores · Stream · Add-ons · Installed**, switch with **L1/R1** or tap), full controller support (D-pad/stick to move, **A** select, **B** back, **X** browse, **☰** menu), big touch targets, button hints along the bottom, and full screen in Game Mode. It shares its look with its sister app [Arcadia](https://github.com/PossiblyPengu/arcadia) (Arcadia's `DESIGN.md`: soft pastels, rounded cards and pill buttons, Nunito and Fraunces). Dusk, the dark scheme, is the default; **☰ Menu → Light look** switches to Cloud.
+
+## Start: a checklist for a new Deck
+
+Deckhand opens on **Start**, a checklist like Arcadia's Setup screen, with a ring showing how much is done:
+Proton for Windows games, Deckhand in your Steam library, a game store, game streaming, Decky Loader, retro games with
+Arcadia, and your first Windows program. Each step shows **Done** once it's on the Deck (however it got there) and
+takes you to where it's set up. Stores, Stream, Add-ons and Installed show each entry's status the same way, as a
+pill on its card.
 
 ## What it does for you
 

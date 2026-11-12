@@ -13,6 +13,9 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSizePolicy,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QVBoxLayout,
     QWidget,
 )
@@ -98,6 +101,21 @@ def draw_glyph(p: QPainter, r: QRectF, kind: str, color: QColor) -> None:
         p.drawRoundedRect(r.adjusted(w * 0.08, h * 0.08, -w * 0.08, -h * 0.08), w * 0.18, h * 0.18)
         p.drawLine(int(x + w / 2), int(y + h * 0.3), int(x + w / 2), int(y + h * 0.7))
         p.drawLine(int(x + w * 0.3), int(y + h / 2), int(x + w * 0.7), int(y + h / 2))
+    elif kind == "check":
+        path = QPainterPath()
+        path.moveTo(x + w * 0.18, y + h * 0.52)
+        path.lineTo(x + w * 0.42, y + h * 0.76)
+        path.lineTo(x + w * 0.84, y + h * 0.28)
+        p.drawPath(path)
+    elif kind == "flag":  # start: a flag on a pole
+        p.drawLine(int(x + w * 0.22), int(y + h * 0.1), int(x + w * 0.22), int(y + h * 0.92))
+        flag = QPainterPath()
+        flag.moveTo(x + w * 0.22, y + h * 0.14)
+        flag.lineTo(x + w * 0.82, y + h * 0.14)
+        flag.lineTo(x + w * 0.66, y + h * 0.33)
+        flag.lineTo(x + w * 0.82, y + h * 0.52)
+        flag.lineTo(x + w * 0.22, y + h * 0.52)
+        p.drawPath(flag)
     else:  # disc
         p.drawEllipse(r.adjusted(w * 0.05, h * 0.05, -w * 0.05, -h * 0.05))
         p.drawEllipse(r.adjusted(w * 0.4, h * 0.4, -w * 0.4, -h * 0.4))
@@ -478,3 +496,125 @@ class Toast(QLabel):
         self.raise_()
         self.show()
         self._timer.start(ms)
+
+
+class Ring(QWidget):
+    """Arcadia's Setup progress ring: how many of the steps are done."""
+
+    def __init__(self, size: int = 188):
+        super().__init__()
+        self.done, self.total = 0, 0
+        self.setFixedSize(size, size)
+
+    def set_progress(self, done: int, total: int) -> None:
+        self.done, self.total = done, total
+        self.setAccessibleName(f"{done} of {total} done")
+        self.update()
+
+    def paintEvent(self, _e) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing)
+        r = QRectF(self.rect()).adjusted(12, 12, -12, -12)
+        pen = QPen(QColor(theme.SURFACE), 16)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        p.drawEllipse(r)
+        if self.total and self.done:
+            pen.setColor(QColor(theme.GREEN if self.done >= self.total else theme.ACCENT))
+            p.setPen(pen)
+            p.drawArc(r, 90 * 16, -int(360 * 16 * self.done / self.total))
+        f = QFont(theme.TITLE_FONT)
+        f.setPixelSize(int(self.height() * 0.24))
+        p.setFont(f)
+        p.setPen(QColor(theme.TEXT))
+        top = QRectF(r.x(), r.y() + r.height() * 0.18, r.width(), r.height() * 0.42)
+        p.drawText(top, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom, f"{self.done}/{self.total}")
+        f2 = QFont(theme.BODY_FONT)
+        f2.setPixelSize(15)
+        f2.setBold(True)
+        p.setFont(f2)
+        p.setPen(QColor(theme.MUTED))
+        p.drawText(QRectF(r.x(), top.bottom() + 4, r.width(), 24), Qt.AlignmentFlag.AlignHCenter,
+                   "all set" if self.total and self.done >= self.total else "done")
+        p.end()
+
+
+PILL_ROLE = Qt.ItemDataRole.UserRole + 1  # the status shown as a pill on the right of a card row
+TONE_ROLE = Qt.ItemDataRole.UserRole + 2  # "done" (green), "todo" (plain) or "busy" (accent)
+
+
+class CardDelegate(QStyledItemDelegate):
+    """List rows drawn as Arcadia's cards: logo, name, what it is, and its status as a pill.
+
+    The item's text stays "Name\\nwhat  ·  status  ·  …" (screen readers and tests read it); the part that's
+    the pill isn't repeated underneath."""
+
+    H = 88
+
+    def sizeHint(self, option, index) -> QSize:  # noqa: N802
+        return QSize(option.rect.width(), self.H)
+
+    def paint(self, p: QPainter, option: QStyleOptionViewItem, index) -> None:
+        p.save()
+        p.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing
+                         | QPainter.RenderHint.SmoothPixmapTransform)
+        r = QRectF(option.rect).adjusted(2, 3, -2, -3)
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        focused = selected and option.widget is not None and option.widget.hasFocus()
+        hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
+        card = QPainterPath()
+        card.addRoundedRect(r, 18, 18)
+        p.fillPath(card, QColor(theme.SURFACE_HI if focused else theme.SURFACE if selected or hover
+                                else theme.BG_RAISED))
+        if focused:
+            p.setPen(QPen(QColor(theme.ACCENT), 3))
+            p.drawPath(card)
+
+        icon = index.data(Qt.ItemDataRole.DecorationRole)
+        side = 52
+        x = r.x() + 16
+        if icon is not None and not icon.isNull():
+            icon.paint(p, int(x), int(r.center().y() - side / 2), side, side)
+        x += side + 16
+
+        pill = str(index.data(PILL_ROLE) or "")
+        tone = str(index.data(TONE_ROLE) or "todo")
+        right = r.right() - 16
+        if pill:
+            f = QFont(theme.BODY_FONT)
+            f.setPixelSize(14)
+            f.setBold(True)
+            p.setFont(f)
+            w = QFontMetrics(f).horizontalAdvance(pill) + 28
+            box = QRectF(right - w, r.center().y() - 16, w, 32)
+            bg, fg = {"done": (theme.GREEN, theme.ON_GREEN), "busy": (theme.ACCENT, theme.ON_ACCENT)}.get(
+                tone, (theme.BG if selected or focused else theme.SURFACE, theme.TEXT_DIM))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(bg))
+            p.drawRoundedRect(box, 16, 16)
+            p.setPen(QColor(fg))
+            p.drawText(box, Qt.AlignmentFlag.AlignCenter, pill)
+            right = box.left() - 16
+
+        lines = str(index.data(Qt.ItemDataRole.DisplayRole) or "").split("\n")
+        title = lines[0]
+        rest = [part for line in lines[1:] for part in line.split("  ·  ") if part and part != pill]
+        tf = QFont(theme.BODY_FONT)
+        tf.setPixelSize(19)
+        tf.setBold(True)
+        p.setFont(tf)
+        p.setPen(QColor(theme.TEXT))
+        width = max(10.0, right - x)
+        tm = QFontMetrics(tf)
+        top = r.y() + (r.height() - (tm.height() + (44 if rest else 0))) / 2
+        p.drawText(QRectF(x, top, width, tm.height()), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                   tm.elidedText(title, Qt.TextElideMode.ElideRight, int(width)))
+        if rest:
+            sf = QFont(theme.BODY_FONT)
+            sf.setPixelSize(15)
+            p.setFont(sf)
+            p.setPen(QColor(theme.TEXT_DIM if selected else theme.MUTED))
+            p.drawText(QRectF(x, top + tm.height() + 2, width, 42),
+                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap,
+                       "  ·  ".join(rest))
+        p.restore()

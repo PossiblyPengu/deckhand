@@ -86,6 +86,40 @@ class TestWindow(Env):
         QTest.keyClick(QApplication.focusWidget(), k)
         self.pump()
 
+    def test_deckhand_opens_on_the_start_checklist(self):
+        self.assertIs(self.win.stack.currentWidget(), self.win.start)
+        self.assertTrue(self.win.stations["start"].isChecked())
+        ids = [self.win.start.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.win.start.list.count())]
+        self.assertEqual(ids, ["proton", "steam", "stores", "stream", "decky", "arcadia", "program"])
+        before = {st.id: st.done for st in self.win.start.steps}
+        self.assertFalse(before["arcadia"] or before["program"] or before["stores"])
+        self.assertEqual(self.win.start.ring.total, 7)
+        self.shot("0-start", self.win)
+
+        apps = self.home / "Applications"
+        apps.mkdir(exist_ok=True)
+        (apps / "Arcadia_x64_SteamDeck.AppImage").write_bytes(b"\x7fELF")
+        self.win.start.refresh()
+        self.assertTrue(next(st for st in self.win.start.steps if st.id == "arcadia").done)
+        self.assertEqual(self.win.start.ring.done, sum(before.values()) + 1)
+
+        from deckhand.app import select_row
+
+        def pick(step: str) -> None:
+            self.win.show_start()
+            select_row(self.win.start.list, step)
+            self.win.start._activate(self.win.start.list.currentItem())
+
+        pick("arcadia")  # goes to Add-ons, Arcadia picked
+        self.assertIs(self.win.stack.currentWidget(), self.win.addons)
+        self.assertEqual(self.win.addons.list.currentItem().data(Qt.ItemDataRole.UserRole), "arcadia")
+        pick("stores")
+        self.assertIs(self.win.stack.currentWidget(), self.win.stores)
+        pick("program")
+        self.assertIs(self.win.stack.currentWidget(), self.win.home)
+        self.win.on_action("lb")  # L1 from Install is Start
+        self.assertIs(self.win.stack.currentWidget(), self.win.start)
+
     def test_home_shows_found_installers(self):
         self.shot("1-home-empty")
         self.add_installer("setup_the_witcher_3_goty_1.32_(10709).exe")
@@ -245,15 +279,17 @@ class TestWindow(Env):
             win = app_mod.MainWindow(self.paths, check_updates=True)  # checks in the background at start
             win.installer_dirs = [self.downloads]
             win.show()
-            self.wait_for(lambda: win.home.banner.isVisible())
+            self.wait_for(lambda: win.start.banner.isVisible())  # on Start, where Deckhand opens
+            self.assertIn("9.0.0 is available", win.start.banner_text.text())
             self.assertIn("9.0.0 is available", win.home.banner_text.text())
+            self.assertFalse(win.home.banner.isHidden())  # and on Install
             self.shot("8-update-banner", win)
-            win.home.update_btn.click()
+            win.start.update_btn.click()
             self.assertIs(win.stack.currentWidget(), win.updating)
             self.wait_for(lambda: win.updating.restart_btn.isVisible())
             self.shot("9-update-done", win)
             self.assertEqual(target.read_bytes(), NEW_APP)
-            self.assertFalse(win.home.banner.isVisible())
+            self.assertTrue(win.home.banner.isHidden() and win.start.banner.isHidden())
             win.updating.restart_btn.click()
             self.assertEqual(restarted, [target])
             win.close()
