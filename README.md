@@ -66,7 +66,12 @@ Home → **Game streaming** (or ☰ Menu) adds streaming services to your Steam 
 **Better xCloud** (optional, for Xbox Cloud Gaming): a free add-on ([redphx/better-xcloud](https://github.com/redphx/better-xcloud))
 for a sharper picture, stream stats, Xbox remote play and mouse & keyboard. Choose **Add with Better xCloud**, or turn it on/off
 later by picking Xbox Cloud Gaming again. It runs in Chromium (Google Chrome no longer lets it be loaded this way), is
-installed without Tampermonkey, and updates itself in the background each time you start it.
+installed without Tampermonkey, and **stays current on its own**: each time you start Xbox Cloud Gaming (and when
+Deckhand opens), at most every six hours, it looks for a newer release *before* the browser starts, so that very launch
+already has it. What it downloads must be Better xCloud, must be newer than what you have, and may only ask to run on
+xbox.com; anything else is refused and you stay on what works. The previous version is kept, and the Xbox entry shows the
+version and when it was last checked, with an **Update Better xCloud now** button (or
+`deckhand --update-better-xcloud --force`).
 
 The page shows which browsers and apps are already on the Deck, and what each service uses. Whatever a service
 needs is installed from Flathub the way Discover does it (system-wide, no password needed on
