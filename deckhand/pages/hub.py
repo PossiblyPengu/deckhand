@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QRectF, QSize, Qt
-from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath
-from PyQt6.QtWidgets import QGridLayout, QHBoxLayout, QPushButton, QVBoxLayout
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
+from PyQt6.QtWidgets import QGridLayout, QHBoxLayout, QPushButton, QSizePolicy, QVBoxLayout
 
 from .. import __version__, core, start, theme
 from ..widgets import button, draw_glyph, label
@@ -21,14 +21,16 @@ SECTIONS = (
 
 
 class SectionCard(QPushButton):
-    """A wide card: a coloured glyph, the section's name and one line about it."""
+    """A big card that grows with the screen: a coloured glyph at the top, the section's name and one line about it
+    at the bottom."""
 
-    W, H = 380, 160
+    MIN_W, MIN_H = 280, 170
 
     def __init__(self, key: str, title: str, glyph: str, detail: str, tint: QColor):
         super().__init__()
         self.key, self.title, self.glyph, self.detail, self.tint = key, title, glyph, detail, tint
-        self.setFixedSize(self.W, self.H)
+        self.setMinimumSize(self.MIN_W, self.MIN_H)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -41,7 +43,17 @@ class SectionCard(QPushButton):
             self.update()
 
     def sizeHint(self) -> QSize:  # noqa: N802
-        return QSize(self.W, self.H)
+        return QSize(self.MIN_W, self.MIN_H)
+
+    def fonts(self) -> tuple[QFont, QFont]:
+        """The title and detail fonts for the card's current size."""
+        h = self.height()
+        title = QFont()
+        title.setPixelSize(int(max(26, min(36, h * 0.14))))
+        title.setBold(True)
+        detail = QFont()
+        detail.setPixelSize(int(max(16, min(20, h * 0.075))))
+        return title, detail
 
     def paintEvent(self, _event) -> None:  # noqa: N802
         p = QPainter(self)
@@ -49,32 +61,35 @@ class SectionCard(QPushButton):
         focused = self.hasFocus()
         r = QRectF(self.rect()).adjusted(3, 3, -3, -3)
         card = QPainterPath()
-        card.addRoundedRect(r, 24, 24)
+        card.addRoundedRect(r, 28, 28)
         p.fillPath(card, QColor(theme.SURFACE_HI if focused or self.underMouse() else theme.SURFACE))
         if focused:
-            p.setPen(QColor(theme.ACCENT))
+            p.setPen(QPen(QColor(theme.ACCENT), 3))
             p.drawPath(card)
-            p.setPen(Qt.PenStyle.NoPen)
-        disc = QRectF(r.x() + 20, r.center().y() - 38, 76, 76)
+        pad = max(20.0, min(30.0, r.width() * 0.07))
+        title_font, detail_font = self.fonts()
+        tm, dm = QFontMetrics(title_font), QFontMetrics(detail_font)
+        text_h = tm.height() + 6 + dm.height() * 2
+        side = max(56.0, min(120.0, r.height() - text_h - pad * 2 - 12))
+        disc = QRectF(r.x() + pad, r.y() + pad, side, side)
         p.setBrush(self.tint)
         p.setPen(Qt.PenStyle.NoPen)
         p.drawEllipse(disc)
-        draw_glyph(p, disc.adjusted(18, 18, -18, -18), self.glyph, QColor(theme.ON_ACCENT))
-        left = disc.right() + 18
-        width = r.right() - left - 14
-        f = QFont()
-        f.setPixelSize(26)
-        f.setBold(True)
-        p.setFont(f)
+        inset = side * 0.24
+        draw_glyph(p, disc.adjusted(inset, inset, -inset, -inset), self.glyph, QColor(theme.ON_ACCENT))
+        width = r.width() - pad * 2
+        bottom = r.bottom() - pad
+        lines = 1 if dm.horizontalAdvance(self.detail) <= width else 2
+        detail_rect = QRectF(r.x() + pad, bottom - dm.height() * lines, width, dm.height() * lines)
+        title_rect = QRectF(r.x() + pad, detail_rect.y() - 6 - tm.height(), width, tm.height())
+        p.setFont(title_font)
         p.setPen(QColor(theme.TEXT))
-        p.drawText(QRectF(left, r.center().y() - 46, width, 36), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self.title)
-        f2 = QFont()
-        f2.setPixelSize(16)
-        p.setFont(f2)
+        p.drawText(title_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                   tm.elidedText(self.title, Qt.TextElideMode.ElideRight, int(width)))
+        p.setFont(detail_font)
         p.setPen(QColor(theme.TEXT_DIM))
-        text = QFontMetrics(f2).elidedText(self.detail, Qt.TextElideMode.ElideRight, int(width * 2 - 20))
-        p.drawText(QRectF(left, r.center().y() - 6, width, 50), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-                   | Qt.TextFlag.TextWordWrap, text)
+        text = dm.elidedText(self.detail, Qt.TextElideMode.ElideRight, int(width * 2 - 20))
+        p.drawText(detail_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap, text)
 
 
 class HubPage(Page):
@@ -108,8 +123,12 @@ class HubPage(Page):
             c.clicked.connect(lambda _x=False, k=key: self.win.switch_section(k))
             self.cards[key] = c
             grid.addWidget(c, i // self.COLUMNS, i % self.COLUMNS)
-        outer.addLayout(grid)
-        outer.addStretch(1)
+        for col in range(self.COLUMNS):
+            grid.setColumnStretch(col, 1)
+        for row in range((len(SECTIONS) + self.COLUMNS - 1) // self.COLUMNS):
+            grid.setRowStretch(row, 1)
+        outer.addLayout(grid, 1)  # the cards take all the room between the heading and the footer
+        outer.addSpacing(6)
         foot = QHBoxLayout()
         self.menu_btn = button("Menu", slot=lambda: self.win.open_menu())
         foot.addWidget(self.menu_btn)

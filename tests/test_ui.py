@@ -1709,10 +1709,30 @@ class TestWindow(Env):
         self.assertIsNone(self.win.findChild(QFrame, "rail"))
         self.assertFalse(hasattr(self.win, "stations"))
 
-    def test_every_hub_card_fits_its_words(self):
+    def test_the_hub_cards_fill_the_screen_and_their_words_fit(self):
         from deckhand.pages.hub import SectionCard
-        for card in self.win.hub.findChildren(SectionCard):
-            self.assertLessEqual(card.fontMetrics().horizontalAdvance(card.title), card.W - 140, card.title)
+        from PyQt6.QtGui import QFontMetrics
+        win = self.win
+        win.resize(1280, 800)
+        win.go_hub()
+        self.pump()
+        cards = list(win.hub.cards.values())
+        page = win.hub
+        left = min(c.mapTo(page, c.rect().topLeft()).x() for c in cards)
+        right = max(c.mapTo(page, c.rect().topRight()).x() for c in cards)
+        bottom = max(c.mapTo(page, c.rect().bottomLeft()).y() for c in cards)
+        m = page.layout().contentsMargins()
+        self.assertLessEqual(left - m.left(), 2)  # edge to edge across the page
+        self.assertGreaterEqual(right, page.width() - m.right() - 3)
+        footer_top = win.hub.menu_btn.mapTo(page, win.hub.menu_btn.rect().topLeft()).y()
+        self.assertGreaterEqual(bottom, footer_top - 40)  # down to the footer: no empty band under the grid
+        for size in (lambda c: c.width(), lambda c: c.height()):  # all the same size (give or take a rounding pixel)
+            self.assertLessEqual(max(map(size, cards)) - min(map(size, cards)), 2)
+        for card in win.hub.findChildren(SectionCard):
+            title, detail = card.fonts()
+            room = card.width() - 2 * 30
+            self.assertLessEqual(QFontMetrics(title).horizontalAdvance(card.title), room, card.title)
+            self.assertLessEqual(QFontMetrics(detail).horizontalAdvance(card.detail), room * 2 - 20, card.detail)
 
     def test_there_is_no_shoulder_button_section_switching(self):
         before = self.win.stack.currentWidget()
