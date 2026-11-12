@@ -165,7 +165,7 @@ class MainWindow(QMainWindow):
         self.space = label("", "muted", wrap=False)
         self.space.setContentsMargins(24, 0, 0, 2)
         v.addWidget(self.space)
-        for text in ("◀ on the D-pad for this menu", f"Deckhand {__version__}"):
+        for text in ("◀ for sections", f"Deckhand {__version__}"):
             foot = label(text, "muted", wrap=False)
             foot.setContentsMargins(24, 0, 0, 0)
             v.addWidget(foot)
