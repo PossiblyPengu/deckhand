@@ -226,4 +226,4 @@ class StreamingPage(Page):
         self.list.setFocus()
 
     def hints(self):
-        return [("A", "Select", self.win.nav_activate), ("B", "Back", self.back)]
+        return self.with_paging([("A", "Select", self.win.nav_activate), ("B", "Back", self.back), ("☰", "Menu", self.win.open_menu)])

@@ -31,6 +31,7 @@ class PickPage(Page):
         row = QHBoxLayout()
         row.addWidget(label("Name in Steam", wrap=False))
         self.name = QLineEdit()
+        self.name.setProperty("keyboard_title", "Name in Steam")
         row.addWidget(self.name, 1)
         lay.addLayout(row)
         lay.addStretch(1)

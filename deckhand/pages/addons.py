@@ -502,7 +502,7 @@ class AddonsPage(Page):
                 return None, False
             return addons.DECKY_TEMP_PASSWORD, True
         text = "Decky's installer needs your admin password." + (
-            "  (STEAM + X opens the keyboard.)" if core.in_game_mode() else "")
+            "  (Steam's keyboard opens by itself; if it doesn't, press STEAM + X.)" if core.in_game_mode() else "")
         for attempt in range(3):
             choice, password = Sheet.ask_text(self, "Admin password", text, ("Continue", "Cancel"),
                                               placeholder="Password", secret=True)
@@ -529,4 +529,4 @@ class AddonsPage(Page):
         self.list.setFocus()
 
     def hints(self):
-        return [("A", "Select", self.win.nav_activate), ("B", "Back", self.back)]
+        return self.with_paging([("A", "Select", self.win.nav_activate), ("B", "Back", self.back), ("☰", "Menu", self.win.open_menu)])

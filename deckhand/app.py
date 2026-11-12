@@ -105,6 +105,8 @@ class MainWindow(QMainWindow):
             lst.setSpacing(2)
         self.nav = Nav(QApplication.instance(), self.on_action, busy=lambda: self.thread is not None) \
             if use_nav else None
+        if self.nav is not None:
+            self.nav.text_editor = self.edit_text_with_keyboard
         # A bound method (not a lambda): Qt disconnects it automatically when the window goes away.
         QApplication.instance().focusChanged.connect(self._focus_changed)
         self.refresh_launchers()
@@ -229,7 +231,7 @@ class MainWindow(QMainWindow):
     def update_hints(self) -> None:
         page = self.stack.currentWidget()
         if isinstance(page, Page):
-            note = "STEAM + X opens the keyboard" if core.in_game_mode() and \
+            note = "A or STEAM + X opens the keyboard" if core.in_game_mode() and \
                 isinstance(QApplication.focusWidget(), QLineEdit) else ""
             self.hint_bar.set_hints(page.hints(), note)
 
@@ -260,12 +262,47 @@ class MainWindow(QMainWindow):
         if self.stack.currentWidget() is self.addons:
             select_row(self.addons.list, addon_id)
 
+    def page_list(self, direction: int) -> None:
+        """L1 / R1: jump a screenful up (-1) or down (1) the list the controller is on, or else the page's list."""
+        w = QApplication.focusWidget()
+        if not isinstance(w, QListWidget):
+            page = self.stack.currentWidget()
+            w = next((x for x in page.findChildren(QListWidget) if x.isVisible() and x.count()), None) \
+                if page is not None else None
+        if w is None or not w.count():
+            return
+        step = max(3, w.viewport().height() // max(1, w.sizeHintForRow(0)) - 1)
+        w.setCurrentRow(max(0, min(w.count() - 1, max(w.currentRow(), 0) + direction * step)))
+        w.setFocus()
+
+    def edit_text_with_keyboard(self, field: QLineEdit) -> None:
+        """A on a text box. In Game Mode there is no keyboard, so Steam's own is brought up (it types into the box).
+        On the desktop A just means Enter. DECKHAND_OSK=1 uses Deckhand's own on-screen keyboard instead of Steam's."""
+        if os.environ.get("DECKHAND_OSK"):
+            if Sheet.current is not None:  # (that dialog has its own keyboard already)
+                field.returnPressed.emit()
+                return
+            title = str(field.property("keyboard_title") or field.placeholderText() or "Type here")
+            choice, value = Sheet.ask_text(self, title, "", ("OK", "Cancel"), placeholder=field.placeholderText(),
+                                           value=field.text())
+            if choice == 0:
+                field.setText(value)
+            field.setFocus()
+        elif core.in_game_mode():
+            field.setFocus()
+            core.show_steam_keyboard()
+        else:
+            field.returnPressed.emit()
+
     def nav_activate(self) -> None:
         if self.nav:
             self.nav.activate()
 
     def on_action(self, action: str) -> None:
         if Sheet.current is not None:
+            osk = Sheet.current.osk
+            if osk is not None and osk.handle(action):  # (typing: B deletes, X is space, Y is shift, ☰ is done)
+                return
             if action == "b":
                 Sheet.current.reject()
             return
@@ -278,6 +315,8 @@ class MainWindow(QMainWindow):
             page.x()
         elif action in ("start", "select"):
             self.open_menu()
+        elif action in ("lb", "rb"):  # L1 / R1: a screenful up or down the list
+            self.page_list(-1 if action == "lb" else 1)
 
     def flash(self, text: str, ms: int = 2600) -> None:
         self.toast.show_message(text, ms)
@@ -619,7 +658,8 @@ class MainWindow(QMainWindow):
             self, "SteamGridDB art", "SteamGridDB (steamgriddb.com) has library art made by the community for "
             "most games and apps. Deckhand can use it instead of the art it draws itself.\n\nIt needs a free API "
             "key: sign in at steamgriddb.com (with your Steam account), open Preferences → API and generate one, "
-            "then type or paste it here." + ("  (STEAM + X opens the keyboard.)" if core.in_game_mode() else ""),
+            "then type or paste it here." + ("  (Steam's keyboard opens by itself; if it doesn't, press STEAM + X.)"
+                                             if core.in_game_mode() else ""),
             ("Save", "Cancel"), placeholder="API key")
         key = value.strip()
         if choice != 0 or not key:

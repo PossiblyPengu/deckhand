@@ -154,7 +154,14 @@ class Page(QWidget):
         """Called every time the page is shown."""
 
     def hints(self) -> list[tuple[str, str, Callable]]:
-        return [("A", "Select", self.win.nav_activate), ("B", "Back", self.back)]
+        return self.with_paging([("A", "Select", self.win.nav_activate), ("B", "Back", self.back),
+                                 ("☰", "Menu", self.win.open_menu)])
+
+    def with_paging(self, hints: list[tuple[str, str, Callable]]) -> list[tuple[str, str, Callable]]:
+        """`hints`, plus "L1/R1 Page" (before the last one, ☰ Menu) when this page has a list long enough to need it."""
+        if not any(l.isVisible() and l.count() > 6 for l in self.findChildren(QListWidget)):
+            return hints
+        return [*hints[:-1], ("LR", "Page", lambda: self.win.page_list(1)), hints[-1]]
 
     def back(self) -> None:
         self.win.go_home()

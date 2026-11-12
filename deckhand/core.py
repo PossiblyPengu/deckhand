@@ -98,8 +98,18 @@ def data_home() -> Path:
 
 
 def clean_env() -> dict[str, str]:
-    """Environment for child processes, minus anything a PyInstaller bundle injected."""
+    """Environment for child processes, minus anything a PyInstaller bundle injected, and minus Steam's overlay
+    (started from Steam, Deckhand carries gameoverlayrenderer.so in LD_PRELOAD, one 32-bit and one 64-bit copy; every
+    program it starts would print "cannot be preloaded (wrong ELF class)" for the one that doesn't fit, into logs
+    and dialogs)."""
     env = os.environ.copy()
+    preload = env.get("LD_PRELOAD")
+    if preload:
+        kept = [p for p in re.split(r"[\s:]+", preload) if p and "gameoverlayrenderer" not in p]
+        if kept:
+            env["LD_PRELOAD"] = ":".join(kept)
+        else:
+            env.pop("LD_PRELOAD", None)
     if getattr(sys, "frozen", False):
         for key in ("LD_LIBRARY_PATH", "QT_PLUGIN_PATH", "QML2_IMPORT_PATH", "SSL_CERT_FILE"):
             orig = env.pop(key + "_ORIG", None)
@@ -2135,7 +2145,22 @@ def request_steam_add(desktop_file: Path) -> bool:
         Path("/tmp/addnonsteamgamefile").touch()  # SteamOS's add-to-steam sets this flag too
     except OSError:
         tmp = desktop_file
-    url = "steam://addnonsteamgame/" + urllib.parse.quote(str(tmp), safe="")
+    return hand_to_steam("steam://addnonsteamgame/" + urllib.parse.quote(str(tmp), safe=""))
+
+
+def open_steam_keyboard() -> bool:
+    """Ask the running Steam to show its on-screen keyboard (what STEAM + X does), which then types into whatever
+    has focus. True if the request was handed over; it can't tell whether the keyboard appeared."""
+    return hand_to_steam("steam://open/keyboard")
+
+
+def show_steam_keyboard() -> None:
+    """open_steam_keyboard() without waiting for it: Steam's answer must never hold up the screen."""
+    threading.Thread(target=open_steam_keyboard, daemon=True).start()
+
+
+def hand_to_steam(url: str) -> bool:
+    """Give a steam:// URL to the running Steam client. True if it was handed over."""
     for cmd in (["steam", url], ["xdg-open", url]):
         exe = shutil.which(cmd[0])
         if not exe:

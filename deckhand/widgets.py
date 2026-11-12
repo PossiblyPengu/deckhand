@@ -1,6 +1,7 @@
 """Deck-sized building blocks: tiles, button hints, full-screen sheets, step indicator, toasts."""
 from __future__ import annotations
 
+import os
 from typing import Callable
 
 from PyQt6.QtCore import QEvent, QEventLoop, QPointF, QRectF, QSize, Qt, QTimer
@@ -295,6 +296,7 @@ class Sheet(QWidget):
         if text:
             lay.addWidget(label(text, "dim"))
         self.field: QLineEdit | None = None
+        self.osk = None  # the on-screen keyboard, when there is one
         self.value = value
         if field is not None:  # a line of text to type: `field` is its placeholder
             self.field = QLineEdit(value)
@@ -303,6 +305,11 @@ class Sheet(QWidget):
                 self.field.setEchoMode(QLineEdit.EchoMode.Password)
             self.field.returnPressed.connect(lambda: self._pick(primary))
             lay.addWidget(self.field)
+            if os.environ.get("DECKHAND_OSK"):  # Deckhand's own keyboard, instead of Steam's (a fallback)
+                from .osk import OnScreenKeyboard
+                self.osk = OnScreenKeyboard(self.field)
+                self.osk.done.connect(lambda: self._pick(primary))
+                lay.addWidget(self.osk)
         if detail:
             box = QPlainTextEdit(detail)
             box.setReadOnly(True)
@@ -342,8 +349,13 @@ class Sheet(QWidget):
         self.setGeometry(self.top.rect())
         self.show()
         self.raise_()
-        if self.field is not None:
+        if self.osk is not None:
+            self.osk.keys[0].setFocus()  # (the D-pad starts on the keys)
+        elif self.field is not None:
             self.field.setFocus()
+            from . import core
+            if core.in_game_mode():  # no keyboard in Game Mode: Steam's own one, which types into the box
+                QTimer.singleShot(300, core.show_steam_keyboard)
         elif self.buttons:
             self.buttons[self.primary].setFocus()
         self._loop = QEventLoop()

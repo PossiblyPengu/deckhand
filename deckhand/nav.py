@@ -91,7 +91,13 @@ class Nav(QObject):
         self._repeat.timeout.connect(self._on_repeat)
         app.installEventFilter(self)
         app.focusChanged.connect(self._scroll_into_view)
+        app.focusChanged.connect(self._remember_page_focus)
+        self.page_focus: QWidget | None = None  # what had focus before the section menu took it
         self.pad: GamepadThread | None = None
+        # If set, every controller event goes here instead of moving or acting (the Controller screen uses this).
+        self.capture: Callable[[str, bool, str], None] | None = None
+        # A on a text box: this opens the on-screen keyboard (set by the window); without it, A means Enter.
+        self.text_editor: Callable[[QLineEdit], None] | None = None
         if not os.environ.get("DECKHAND_NO_GAMEPAD"):
             self.pad = GamepadThread()
             self.pad.action.connect(self.on_pad)
@@ -122,6 +128,10 @@ class Nav(QObject):
         # controller, one physical press arrives twice and the second copy is dropped.
         source = f"pad:{device}"
         if not self._ours():
+            return
+        if self.capture is not None:
+            if self._fresh(action, source):
+                self.capture(action, pressed, device)
             return
         if action in gamepad.DIRECTIONS:
             if pressed:
@@ -200,6 +210,14 @@ class Nav(QObject):
         if isinstance(cur, QListWidget) and self._widget_wants(cur, d):
             cur.setCurrentRow(cur.currentRow() + (1 if d == "down" else -1))
             return
+        if d == "right" and cur is not None and cur.objectName() == "station":
+            back = self.page_focus  # (the control you left, if it is still there)
+            try:
+                if back is not None and back.isVisible() and back.isEnabled() and back.window() is root:
+                    back.setFocus(Qt.FocusReason.OtherFocusReason)
+                    return
+            except RuntimeError:  # it was deleted meanwhile
+                self.page_focus = None
         cands = [w for w in focusable(root) if w is not cur]
         if not cands:
             return
@@ -218,7 +236,15 @@ class Nav(QObject):
         elif isinstance(w, QListWidget) and w.currentItem() is not None:
             w.itemActivated.emit(w.currentItem())
         elif isinstance(w, QLineEdit):
-            w.returnPressed.emit()
+            if self.text_editor is not None:
+                self.text_editor(w)
+            else:
+                w.returnPressed.emit()
+
+    def _remember_page_focus(self, old: QWidget | None, new: QWidget | None) -> None:
+        """Going left into the section menu remembers where you were, so going right returns you there."""
+        if old is not None and new is not None and new.objectName() == "station" and old.objectName() != "station":
+            self.page_focus = old
 
     @staticmethod
     def _scroll_into_view(_old: QWidget | None, new: QWidget | None) -> None:

@@ -100,4 +100,4 @@ class DonePage(Page):
         self.done_btn.setFocus()
 
     def hints(self):
-        return [("A", "Select", self.win.nav_activate), ("B", "Done", self.back)]
+        return [("A", "Select", self.win.nav_activate), ("B", "Done", self.back), ("☰", "Menu", self.win.open_menu)]

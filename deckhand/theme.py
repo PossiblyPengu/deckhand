@@ -63,6 +63,8 @@ QPushButton#primary:hover {{ background: {ACCENT_HI}; border-color: {ACCENT_HI};
 QPushButton#play {{ background: {GREEN}; border-color: {GREEN}; color: {ON_GREEN}; font-size: 22px; font-weight: 800; }}
 QPushButton#play:focus, QPushButton#play:hover {{ background: {GREEN_HI}; border-color: {TEXT}; }}
 QPushButton#danger {{ color: {DANGER}; }}
+QPushButton#key {{ padding: 2px 0; min-height: 40px; min-width: 0; border-radius: 14px; font-size: 22px; font-weight: 700; }}
+QPushButton#key:checked {{ background: {ACCENT}; border-color: {ACCENT}; color: {ON_ACCENT}; }}
 QPushButton#flat {{ background: transparent; border-color: transparent; color: {TEXT_DIM}; }}
 QPushButton#flat:focus {{ border-color: {ACCENT}; }}
 

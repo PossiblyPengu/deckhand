@@ -75,7 +75,7 @@ class StartPage(Page):
         self.list.setFocus()
 
     def hints(self):
-        return [("A", "Select", self.win.nav_activate), ("☰", "Menu", self.win.open_menu)]
+        return self.with_paging([("A", "Select", self.win.nav_activate), ("☰", "Menu", self.win.open_menu)])
 
     def back(self) -> None:
         pass

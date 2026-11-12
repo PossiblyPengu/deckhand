@@ -945,6 +945,327 @@ class TestWindow(Env):
                 t.stop()
             w.close()
 
+    # ── the on-screen keyboard (Game Mode has no other) ──────────────
+
+    def _game_mode(self):
+        os.environ["XDG_CURRENT_DESKTOP"] = "gamescope"
+
+    def _own_keyboard(self):
+        os.environ["DECKHAND_OSK"] = "1"  # Deckhand's own keyboard instead of Steam's (the fallback)
+
+    def _keyboard(self):
+        from PyQt6.QtWidgets import QLineEdit
+        from deckhand.osk import OnScreenKeyboard
+        field = QLineEdit()
+        kb = OnScreenKeyboard(field)
+        kb.show()
+        self.addCleanup(kb.close)
+        return kb, field
+
+    def test_the_keyboard_types_deletes_and_spaces(self):
+        kb, field = self._keyboard()
+        for ch in "ab1":
+            kb.type(ch)
+        kb.space()
+        kb.type("c")
+        self.assertEqual(field.text(), "ab1 c")
+        kb.backspace()
+        kb.backspace()
+        self.assertEqual(field.text(), "ab1")
+
+    def test_shift_is_for_one_letter_and_leaves_digits_and_symbols_alone(self):
+        kb, field = self._keyboard()
+        kb.toggle_shift()
+        self.assertTrue(kb.shift_key.isChecked())
+        self.assertEqual(next(b for b in kb.keys if b.accessibleName() == "q").text(), "Q")  # (the keys show it)
+        kb.type("q")
+        kb.type("w")
+        kb.toggle_shift()
+        kb.type("5")
+        self.assertEqual(field.text(), "Qw5")
+        self.assertEqual(next(b for b in kb.keys if b.accessibleName() == "q").text(), "q")
+
+    def test_every_symbol_has_a_key_that_shows_it(self):
+        from deckhand.osk import ROWS
+        kb, _field = self._keyboard()
+        shown = {b.text().replace("&&", "&") for b in kb.keys}
+        for ch in "".join(ROWS):
+            self.assertIn(ch, shown, f"no key shows {ch!r}")
+        # Qt reads a lone "&" in a button's text as a shortcut marker and draws nothing: the key must hold "&&".
+        amp = next(b for b in kb.keys if b.accessibleName() == "&")
+        self.assertEqual(amp.text(), "&&")
+
+    def test_the_controller_buttons_work_the_keyboard(self):
+        kb, field = self._keyboard()
+        kb.type("a")
+        kb.type("b")
+        done = []
+        kb.done.connect(lambda: done.append(1))
+        self.assertTrue(kb.handle("b"))      # B deletes
+        self.assertEqual(field.text(), "a")
+        self.assertTrue(kb.handle("x"))      # X is space
+        self.assertEqual(field.text(), "a ")
+        self.assertTrue(kb.handle("y"))      # Y is shift
+        self.assertTrue(kb.shift)
+        self.assertTrue(kb.handle("start"))  # ☰ is done
+        self.assertTrue(kb.handle("select"))
+        self.assertEqual(len(done), 2)
+        self.assertFalse(kb.handle("a"))     # A is the focused key's own press; the d-pad is the navigation's
+        self.assertFalse(kb.handle("lb"))
+
+    def test_every_key_can_be_reached_with_the_dpad_alone(self):
+        from deckhand import nav
+        kb, _field = self._keyboard()
+        self.pump()
+        rects = {b: nav._grect(b) for b in kb.keys}
+        seen, stack = {kb.keys[0]}, [kb.keys[0]]
+        while stack:
+            cur = stack.pop()
+            for d in ("up", "down", "left", "right"):
+                tgt = nav.nearest(rects[cur], [(b, r) for b, r in rects.items() if b is not cur], d)
+                if tgt is not None and tgt not in seen:
+                    seen.add(tgt)
+                    stack.append(tgt)
+        self.assertEqual(len(seen), len(kb.keys), [b.text() for b in kb.keys if b not in seen])
+
+    def test_a_text_dialog_shows_deckhands_own_keyboard_only_when_asked_for(self):
+        from deckhand.widgets import Sheet
+        self._game_mode()
+        plain = Sheet(self.win, "Password", "", ("OK", "Cancel"), field="Password", secret=True)
+        self.addCleanup(plain.deleteLater)
+        self.assertIsNone(plain.osk)  # (in Game Mode Steam's own keyboard is used: see below)
+        self.assertEqual(plain.field.echoMode().name, "Password")
+        self._own_keyboard()
+        own = Sheet(self.win, "Password", "", ("OK", "Cancel"), field="Password", secret=True)
+        self.addCleanup(own.deleteLater)
+        self.assertIsNotNone(own.osk)
+        self.assertIsNone(Sheet(self.win, "No field", "", ("OK",)).osk)
+
+    def test_in_a_text_dialog_b_deletes_instead_of_closing_and_start_confirms(self):
+        from deckhand.widgets import Sheet
+        self._game_mode()
+        self._own_keyboard()
+        s = Sheet(self.win, "Key", "", ("Save", "Cancel"), field="API key")
+        self.addCleanup(s.deleteLater)
+        s.osk.type("a")
+        s.osk.type("b")
+        Sheet.current = s
+        self.addCleanup(lambda: setattr(Sheet, "current", None))
+        s._loop = None
+        self.win.on_action("b")
+        self.assertEqual(s.field.text(), "a")  # B deleted a letter ...
+        self.assertEqual(s.choice, -1)         # ... and did not close the dialog
+        self.win.on_action("start")
+        self.assertEqual(s.choice, 0)          # ☰ chose the main button
+        self.assertEqual(s.value, "a")
+
+    def test_a_on_a_text_box_opens_deckhands_own_keyboard_when_asked_for(self):
+        from deckhand.widgets import Sheet
+        self._game_mode()
+        self._own_keyboard()
+        field = self.win.pick.name
+        field.setText("Old name")
+        orig = Sheet.ask_text
+        seen = []
+        Sheet.ask_text = staticmethod(lambda parent, title, text="", buttons=(), **k: (
+            seen.append((title, k.get("value"))), (0, "New name"))[1])
+        self.addCleanup(lambda: setattr(Sheet, "ask_text", orig))
+        self.win.go(self.win.pick)
+        self.pump()
+        field.setFocus()
+        self.pump()
+        self.win.nav.activate()
+        self.assertEqual(seen, [("Name in Steam", "Old name")])
+        self.assertEqual(field.text(), "New name")
+
+    def test_a_on_a_text_box_just_means_enter_on_the_desktop(self):
+        from deckhand.widgets import Sheet
+        for key in ("SteamGamepadUI", "XDG_CURRENT_DESKTOP", "GAMESCOPE_WAYLAND_DISPLAY"):
+            os.environ.pop(key, None)
+        field = self.win.pick.name
+        entered = []
+        field.returnPressed.connect(lambda: entered.append(1))
+        steam_asked = []
+        from unittest import mock
+        patcher = mock.patch.object(core, "show_steam_keyboard", lambda: steam_asked.append(1))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        orig = Sheet.ask_text
+        Sheet.ask_text = staticmethod(lambda *a, **k: (_ for _ in ()).throw(AssertionError("no keyboard on the desktop")))
+        self.addCleanup(lambda: setattr(Sheet, "ask_text", orig))
+        self.win.go(self.win.pick)
+        self.pump()
+        field.setFocus()
+        self.pump()
+        self.win.nav.activate()
+        self.assertEqual(entered, [1])
+        self.assertEqual(steam_asked, [])  # (Steam's keyboard is for Game Mode)
+
+    # ── Steam's own keyboard (what Game Mode uses) ───────────────────
+
+    def _steam_keyboard_calls(self):
+        from unittest import mock
+        calls = []
+        patcher = mock.patch.object(core, "open_steam_keyboard", lambda: calls.append(1) or True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return calls
+
+    def test_a_on_a_text_box_asks_steam_for_its_keyboard_in_game_mode(self):
+        from PyQt6.QtWidgets import QApplication
+        from deckhand.widgets import Sheet
+        self._game_mode()
+        calls = self._steam_keyboard_calls()
+        orig = Sheet.ask_text
+        Sheet.ask_text = staticmethod(lambda *a, **k: (_ for _ in ()).throw(AssertionError("no custom keyboard")))
+        self.addCleanup(lambda: setattr(Sheet, "ask_text", orig))
+        field = self.win.pick.name
+        self.win.go(self.win.pick)
+        self.pump()
+        field.setFocus()
+        self.pump()
+        self.win.nav.activate()
+        self.wait_for(lambda: calls)  # (it is asked for on a thread, so Steam can never hold up the screen)
+        self.assertEqual(len(calls), 1)
+        self.assertIs(QApplication.focusWidget(), field)  # the keys Steam sends arrive in this box
+
+    def test_a_text_dialog_asks_steam_for_its_keyboard_in_game_mode_but_not_on_the_desktop(self):
+        from PyQt6.QtCore import QTimer
+        from deckhand.widgets import Sheet
+        self._game_mode()
+        calls = self._steam_keyboard_calls()
+        s = Sheet(self.win, "Admin password", "", ("Continue", "Cancel"), field="Password", secret=True)
+        QTimer.singleShot(800, s.reject)
+        s.exec()
+        self.wait_for(lambda: calls)
+        self.assertEqual(len(calls), 1)
+        for key in ("SteamGamepadUI", "XDG_CURRENT_DESKTOP", "GAMESCOPE_WAYLAND_DISPLAY"):
+            os.environ.pop(key, None)
+        calls.clear()
+        d = Sheet(self.win, "Admin password", "", ("Continue", "Cancel"), field="Password")
+        QTimer.singleShot(800, d.reject)
+        d.exec()
+        self.pump(10)
+        self.assertEqual(calls, [])
+
+    def test_a_dialog_without_a_text_box_never_asks_for_a_keyboard(self):
+        from PyQt6.QtCore import QTimer
+        from deckhand.widgets import Sheet
+        self._game_mode()
+        calls = self._steam_keyboard_calls()
+        s = Sheet(self.win, "Install?", "", ("Install", "Cancel"))
+        QTimer.singleShot(600, s.reject)
+        s.exec()
+        self.pump(10)
+        self.assertEqual(calls, [])
+
+    # ── paging, hints and focus memory ───────────────────────────────
+
+    def _addons_list(self):
+        self.win.go_home()
+        self.win.switch_section("addons")
+        page = self.win.addons
+        self.pump()
+        return page, page.list
+
+    def test_l1_and_r1_page_through_a_long_list_and_stop_at_the_ends(self):
+        page, lst = self._addons_list()
+        self.assertGreater(lst.count(), 6)
+        lst.setCurrentRow(0)
+        lst.setFocus()
+        self.pump()
+        self.win.on_action("rb")
+        first = lst.currentRow()
+        self.assertGreaterEqual(first, 3)  # more than one row: that is the point
+        self.assertLess(first, lst.count())
+        self.win.on_action("rb")
+        self.assertGreater(lst.currentRow(), first)
+        for _ in range(10):
+            self.win.on_action("rb")
+        self.assertEqual(lst.currentRow(), lst.count() - 1)  # stops at the bottom
+        for _ in range(10):
+            self.win.on_action("lb")
+        self.assertEqual(lst.currentRow(), 0)  # and the top
+
+    def test_l1_and_r1_still_page_the_list_when_the_focus_is_elsewhere(self):
+        page, lst = self._addons_list()
+        lst.setCurrentRow(0)
+        self.win.stations["addons"].setFocus()  # (on the section menu, not the list)
+        self.pump()
+        self.win.on_action("rb")
+        self.assertGreaterEqual(lst.currentRow(), 3)
+
+    def test_l1_and_r1_never_change_the_page(self):
+        self.win.go_home()
+        self.win.switch_section("installed")
+        page_before = self.win.stack.currentWidget()
+        self.win.on_action("rb")
+        self.win.on_action("lb")
+        self.assertIs(self.win.stack.currentWidget(), page_before)
+
+    def test_every_screen_advertises_what_works(self):
+        pages = {"start": self.win.start, "addons": self.win.addons, "stores": self.win.stores,
+                 "streaming": self.win.streaming, "installed": self.win.installed, "browser": self.win.browser}
+        for name, page in pages.items():
+            self.win.go(page)
+            self.pump()
+            glyphs = [h[0] for h in page.hints()]
+            self.assertEqual(glyphs[0], "A", name)
+            self.assertIn("☰", glyphs, f"{name} doesn't mention the menu")
+            self.assertTrue(all(callable(h[2]) for h in page.hints()), name)
+        self.win.go(self.win.addons)  # long lists say how to page; a page with nothing to page doesn't
+        self.pump()
+        self.assertIn("LR", [h[0] for h in self.win.addons.hints()])
+        self.assertEqual([h[0] for h in self.win.addons.hints()][-1], "☰")  # (☰ stays last)
+        self.win.go(self.win.installed)
+        self.pump()
+        self.assertNotIn("LR", [h[0] for h in self.win.installed.hints()])
+
+    def test_the_menu_button_is_not_offered_in_the_middle_of_an_install_or_update(self):
+        self.assertNotIn("☰", [h[0] for h in self.win.progress.hints()])
+        self.assertNotIn("☰", [h[0] for h in self.win.updating.hints()])
+
+    def test_going_right_from_the_section_menu_returns_to_where_you_were(self):
+        from PyQt6.QtWidgets import QApplication
+        for n in ("a.exe", "b.exe", "c.exe", "d.exe", "e.exe", "f.exe"):
+            self.add_installer(n, 10)
+        self.win.go_home()
+        self.pump()
+        tiles = self.win.home.tiles
+        last = tiles[-1]
+        self.assertIsNot(last, tiles[0])
+        nav = self.win.nav
+        # Where "nearest" would go from the section menu, with nothing remembered: that must not be `last`,
+        # or this test could not tell memory from geometry.
+        nav.page_focus = None
+        self.win.stations["install"].setFocus()
+        self.pump()
+        nav.move("right")
+        self.pump()
+        nearest = QApplication.focusWidget()
+        self.assertIsNot(nearest, last)
+        # Now leave from `last` for the section menu, and come back: it returns to `last`.
+        last.setFocus()
+        self.pump()
+        self.win.stations["install"].setFocus()
+        self.pump()
+        self.assertIs(nav.page_focus, last)
+        nav.move("right")
+        self.pump()
+        self.assertIs(QApplication.focusWidget(), last)
+
+    def test_going_right_with_nothing_remembered_still_finds_the_page(self):
+        from PyQt6.QtWidgets import QApplication
+        self.win.go_home()
+        self.pump()
+        nav = self.win.nav
+        nav.page_focus = None
+        self.win.stations["install"].setFocus()
+        self.pump()
+        nav.move("right")
+        self.pump()
+        self.assertNotEqual(QApplication.focusWidget().objectName(), "station")
+
     def test_it_can_be_switched_off(self):
         calls = self._auto_add_fakes()
         os.environ["DECKHAND_NO_AUTO_STEAM"] = "1"

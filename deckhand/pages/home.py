@@ -109,7 +109,7 @@ class HomePage(Page):
         (self.tiles[1] if len(self.tiles) > 1 else self.tiles[0]).setFocus()
 
     def hints(self):
-        return [("A", "Select", self.win.nav_activate), ("X", "Browse", self.x), ("☰", "Menu", self.win.open_menu)]
+        return self.with_paging([("A", "Select", self.win.nav_activate), ("X", "Browse", self.x), ("☰", "Menu", self.win.open_menu)])
 
     def back(self) -> None:
         pass

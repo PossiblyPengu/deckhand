@@ -10,7 +10,7 @@ Deckhand is an installer, not a launcher: once something is installed you play i
 2. Click through the installer as usual.
 3. Done: the program is in your Steam library, with its icon and library artwork.
 
-Built for the Deck: six sections down the left (**Start · Install · Stores · Stream · Add-ons · Installed**, press **left** on the D-pad to reach them, **up/down** to choose and **A** to open, or tap), full controller support (D-pad/stick to move, **A** select, **B** back, **X** browse, **☰** menu), big touch targets, button hints along the bottom, and full screen in Game Mode. It shares its look with its sister app [Arcadia](https://github.com/PossiblyPengu/arcadia) (`DESIGN.md`: soft pastels, rounded cards and pill buttons, Nunito and Fraunces). Dusk, the dark scheme, is the default; **☰ Menu → Light look** switches to Cloud.
+Built for the Deck: six sections down the left (**Start · Install · Stores · Stream · Add-ons · Installed**, press **left** on the D-pad to reach them, **up/down** to choose and **A** to open, or tap), full controller support (D-pad/stick to move, **A** select, **B** back, **X** browse, **☰** menu, **L1/R1** to page through long lists; going back from the section menu returns you to the control you left), big touch targets, button hints along the bottom, and full screen in Game Mode. It shares its look with its sister app [Arcadia](https://github.com/PossiblyPengu/arcadia) (`DESIGN.md`: soft pastels, rounded cards and pill buttons, Nunito and Fraunces). Dusk, the dark scheme, is the default; **☰ Menu → Light look** switches to Cloud.
 
 ## Start: a checklist for a new Deck
 
@@ -19,6 +19,16 @@ Proton for Windows games, Deckhand in your Steam library, a game store, game str
 Arcadia, and your first Windows program. Each step shows **Done** once it's on the Deck (however it got there) and
 takes you to where it's set up. Stores, Stream, Add-ons and Installed show each entry's status the same way, as a
 pill on its card.
+
+## Typing with a controller
+
+Where Deckhand needs text (an admin password, a SteamGridDB key, a program's name), **A** on the box brings up Steam's own
+on-screen keyboard in Game Mode, and a dialog with a text box opens it by itself. It types into the box, and its Enter
+confirms. If it doesn't appear, press **STEAM + X**. (`DECKHAND_OSK=1` uses a keyboard built into Deckhand instead:
+**A** types, **B** deletes, **X** space, **Y** shift, **☰** done.)
+
+Programs Deckhand starts no longer inherit Steam's overlay library, so their output isn't full of
+"gameoverlayrenderer.so cannot be preloaded" lines.
 
 ## What it does for you
 

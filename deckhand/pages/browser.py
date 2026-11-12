@@ -102,7 +102,7 @@ class BrowserPage(Page):
         self.list.setFocus()
 
     def hints(self):
-        return [("A", "Open", self.win.nav_activate), ("B", "Back", self.back)]
+        return self.with_paging([("A", "Open", self.win.nav_activate), ("B", "Back", self.back), ("☰", "Menu", self.win.open_menu)])
 
     def back(self) -> None:
         if self.cwd not in self.roots and self.cwd.parent != self.cwd:

@@ -198,4 +198,4 @@ class InstalledPage(Page):
         (self.list if self.list.isVisible() else self.start_buttons[0]).setFocus()
 
     def hints(self):
-        return [("A", "Select", self.win.nav_activate), ("B", "Back", self.back)]
+        return self.with_paging([("A", "Select", self.win.nav_activate), ("B", "Back", self.back), ("☰", "Menu", self.win.open_menu)])

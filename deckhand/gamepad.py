@@ -23,10 +23,13 @@ BUTTONS = {
 }
 ABS_X, ABS_Y, ABS_HAT0X, ABS_HAT0Y = 0x00, 0x01, 0x10, 0x11
 DIRECTIONS = ("up", "down", "left", "right")
+# How each action is written on screen, in the order the Controller screen lists them.
+ACTION_LABELS = {"a": "A", "b": "B", "x": "X", "y": "Y", "up": "▲", "down": "▼", "left": "◀", "right": "▶",
+                 "lb": "L1", "rb": "R1", "select": "⧉", "start": "☰"}
 
 
-def joystick_event_nodes(devices_text: str | None = None) -> list[str]:
-    """/dev/input/eventN paths of joysticks, from /proc/bus/input/devices."""
+def joystick_devices(devices_text: str | None = None) -> list[tuple[str, list[str]]]:
+    """(name, /dev/input/eventN paths) of every joystick, from /proc/bus/input/devices."""
     if devices_text is None:
         try:
             devices_text = Path("/proc/bus/input/devices").read_text(errors="replace")
@@ -39,8 +42,15 @@ def joystick_event_nodes(devices_text: str | None = None) -> list[str]:
             continue
         handlers = m.group(1).split()
         if any(h.startswith("js") for h in handlers):
-            out += [f"/dev/input/{h}" for h in handlers if h.startswith("event")]
+            name = re.search(r'^N: Name="(.*)"$', block, re.M)
+            out.append((name.group(1) if name else "Game controller",
+                        [f"/dev/input/{h}" for h in handlers if h.startswith("event")]))
     return out
+
+
+def joystick_event_nodes(devices_text: str | None = None) -> list[str]:
+    """/dev/input/eventN paths of joysticks, from /proc/bus/input/devices."""
+    return [path for _name, paths in joystick_devices(devices_text) for path in paths]
 
 
 class PadState:
