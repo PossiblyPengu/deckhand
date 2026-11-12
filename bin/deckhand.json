@@ -1,5 +1,5 @@
 {
-  "version": "4.3.0",
-  "sha256": "f1132dd5ec560be69268531db3a3f3f04140b6eb1b2d3f0c4155f971b2932801",
-  "notes": "Matches its sister app Arcadia (Dusk and Cloud looks, a Start checklist, Arcadia in Add-ons). Adds Nexus Launcher for Xbox and Game Pass PC games. Quick install for Inno Setup, NSIS and MSI installers, and .zip/.7z/.rar/.iso archives are unpacked for you. Downloads resume and retry, never keep a short file, check disk space first and show speed and time left. Installer errors are explained in plain words."
+  "version": "4.3.1",
+  "sha256": "f6bf5830ed181a313128d14b0e2dacf296f2de2e7dab3a63588e3cb3c0922692",
+  "notes": "Reach the section menu with left on the D-pad, then up/down and A (L1/R1 section switching is gone). The chosen section's icon is readable, the empty Installed page offers where to start, and the Stores intro is shorter."
 }
