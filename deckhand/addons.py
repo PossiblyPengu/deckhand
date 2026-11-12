@@ -91,17 +91,31 @@ def decky_version(home: Path | None = None) -> str | None:
         return "installed"
 
 
-def arcadia_app(home: Path | None = None) -> Path | None:
-    """Arcadia's AppImage in ~/Applications (the name its releases use, else any Arcadia*.AppImage there)."""
+def arcadia_apps(home: Path | None = None) -> list[Path]:
+    """Every Arcadia AppImage in ~/Applications: the name its releases use first, then any other Arcadia*.AppImage."""
     apps = (home or Path.home()) / "Applications"
-    if (apps / ARCADIA_APPIMAGE).is_file():
-        return apps / ARCADIA_APPIMAGE
     try:
         found = sorted(p for p in apps.iterdir() if p.is_file() and p.name.lower().startswith("arcadia")
                        and p.name.lower().endswith(".appimage"))
     except OSError:
-        return None
+        return []
+    return sorted(found, key=lambda p: p.name != ARCADIA_APPIMAGE)
+
+
+def arcadia_app(home: Path | None = None) -> Path | None:
+    """The Arcadia AppImage Deckhand opens and updates (see arcadia_apps)."""
+    found = arcadia_apps(home)
     return found[0] if found else None
+
+
+def arcadia_shortcut_of_yours(roots=None, home: Path | None = None) -> int:
+    """The appid of a Steam shortcut you made yourself that runs an Arcadia AppImage directly (0 if none).
+    Deckhand's own shortcut runs its launcher instead, so it never counts; and Deckhand never removes this one."""
+    for appimage in arcadia_apps(home):
+        appid = core.find_shortcut(str(appimage), roots)
+        if appid:
+            return appid
+    return 0
 
 
 def emudeck_app(home: Path | None = None) -> Path | None:
@@ -238,12 +252,8 @@ def set_up_arcadia(paths: core.Paths, roots=None, steam: bool = True) -> core.Ap
     app.installed_at = time.time()
     core.use_logo(app, paths, "arcadia")
     core.write_desktop_entry(app)
-    if steam:
-        own = core.find_shortcut(str(appimage), roots)
-        if own:
-            app.steam_appid, app.steam_added = own, "live"
-        elif core.steam_state(app, roots) != "sent":
-            core.add_to_steam(app, roots)
+    if steam and not arcadia_shortcut_of_yours(roots) and core.steam_state(app, roots) != "sent":
+        core.add_to_steam(app, roots)
     library.upsert(app)
     return app
 
@@ -252,9 +262,9 @@ def uninstall_arcadia(app: core.App | None, paths: core.Paths, roots=None) -> bo
     """Arcadia's AppImage, launcher and shortcut go; its settings (~/Arcadia) and your games stay.
     True if the shortcut was left for you to remove in Steam."""
     left = core.uninstall(app, paths, roots=roots) if app is not None else False
-    appimage = arcadia_app()
-    for f in (appimage, appimage.with_name(appimage.name + ".previous")) if appimage else ():
-        f.unlink(missing_ok=True)
+    for appimage in arcadia_apps():
+        for f in (appimage, appimage.with_name(appimage.name + ".previous")):
+            f.unlink(missing_ok=True)
     return left
 
 

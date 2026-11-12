@@ -1558,15 +1558,19 @@ class AddonsPage(Page):
             return
         app = self.apps.get(a.id)
         in_steam = app is not None and self.steam.get(a.id) in ("in", "sent")
+        yours = not in_steam and bool(addons.arcadia_shortcut_of_yours())
         actions = [("Open Arcadia", lambda: self._open_arcadia()),
-                   ("Get the newest Arcadia", lambda: self._download_arcadia(a)),
-                   ("Remove from Steam", lambda: self.win.uninstall(app)) if in_steam else
-                   ("Add to Steam", lambda: self._set_up_arcadia(a)),
-                   ("Uninstall", lambda: self._uninstall_arcadia(a)),
-                   ("Close", None)]
-        where = "It's in your Steam library." if in_steam else "It's not in your Steam library yet."
+                   ("Get the newest Arcadia", lambda: self._download_arcadia(a))]
+        if in_steam:
+            actions.append(("Remove from Steam", lambda: self.win.uninstall(app)))
+        elif not yours:
+            actions.append(("Add to Steam", lambda: self._set_up_arcadia(a)))
+        actions += [("Uninstall", lambda: self._uninstall_arcadia(a, yours)), ("Close", None)]
+        where = ("It's in your Steam library." if in_steam else
+                 "It's in your Steam library: you added it yourself, so Deckhand leaves that shortcut alone." if yours
+                 else "It's not in your Steam library yet.")
         choice = Sheet.ask(self, "Arcadia", f"Arcadia is installed. {where}", tuple(t for t, _f in actions),
-                           primary=len(actions) - 1, danger=(3,))
+                           primary=len(actions) - 1, danger=(len(actions) - 2,))
         if 0 <= choice < len(actions) and actions[choice][1] is not None:
             actions[choice][1]()
 
@@ -1607,9 +1611,12 @@ class AddonsPage(Page):
         self.win.run_worker(lambda _s: addons.set_up_arcadia(self.win.paths), finished, self._failed("Arcadia"),
                             kind="addon")
 
-    def _uninstall_arcadia(self, a: addons.Addon) -> None:
-        if Sheet.ask(self, "Uninstall Arcadia?", "Removes Arcadia and its Steam shortcut. Your games, saves and "
-                     "Arcadia's settings (in ~/Arcadia) stay, in case you install it again.", ("Uninstall", "Keep"),
+    def _uninstall_arcadia(self, a: addons.Addon, yours: bool = False) -> None:
+        shortcut = (" The Steam shortcut you added yourself stays: remove it in Steam if you like." if yours
+                    else " and its Steam shortcut")
+        what = f"Removes Arcadia.{shortcut}" if yours else f"Removes Arcadia{shortcut}."
+        if Sheet.ask(self, "Uninstall Arcadia?", f"{what} Your games, saves and Arcadia's settings (in ~/Arcadia) "
+                     "stay, in case you install it again.", ("Uninstall", "Keep"),
                      primary=1, danger=(0,)) != 0:
             return
 

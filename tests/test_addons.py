@@ -123,8 +123,23 @@ class TestArcadia(Env):
         self.assertEqual(addons.arcadia_app(), mine)
         appid, _how = core.add_shortcut("Arcadia", str(mine), str(apps), roots=[self.steam], running=False)
         app = addons.set_up_arcadia(self.paths, roots=[self.steam])
-        self.assertEqual(app.steam_appid, appid)
+        self.assertEqual(addons.arcadia_shortcut_of_yours([self.steam]), appid)
+        self.assertEqual(app.steam_appid, 0)  # not adopted: it's yours
         self.assertEqual(len(core.steam_shortcuts([self.steam])), 1)
+        # Uninstalling Arcadia never takes away a shortcut you made, even with Steam closed.
+        addons.uninstall_arcadia(app, self.paths, roots=[self.steam])
+        self.assertFalse(mine.exists())
+        self.assertEqual([core._entry_appid(e) for _c, e in core.steam_shortcuts([self.steam])], [appid])
+
+    def test_uninstall_removes_every_arcadia_appimage(self):
+        apps = self.home / "Applications"
+        apps.mkdir()
+        for name in (addons.ARCADIA_APPIMAGE, addons.ARCADIA_APPIMAGE + ".previous", "Arcadia-0.1.AppImage"):
+            (apps / name).write_bytes(ARCADIA_BODY)
+        self.assertEqual(addons.arcadia_app(), apps / addons.ARCADIA_APPIMAGE)
+        addons.uninstall_arcadia(None, self.paths, roots=[self.steam])
+        self.assertEqual(list(apps.iterdir()), [])
+        self.assertEqual(addons.status(addons.addon("arcadia")), "Not installed")
 
     def test_a_download_that_fails_its_checksum_keeps_the_old_arcadia(self):
         apps = self.home / "Applications"
