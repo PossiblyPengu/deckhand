@@ -485,9 +485,9 @@ class TestWindow(Env):
         self.wait_for(lambda: page.installed is not None)
         self.assertIn("installs Google Chrome", page.list.item(0).text())
         self.assertIn("Google Chrome ✗", page.on_deck.text())
-        self.answers = [0]  # Add to Steam
+        self.answers = [0, 0]  # Add to Steam; then Chrome, the first browser offered
         page._activate(page.list.item(0))
-        self.assertEqual(self.asked[-1], "Add Xbox Cloud Gaming to Steam?")
+        self.assertEqual(self.asked[-2:], ["Add Xbox Cloud Gaming to Steam?", "Which browser for Xbox Cloud Gaming?"])
         self.wait_for(lambda: "In Steam" in page.list.item(0).text())
         self.wait_for(lambda: "Google Chrome ✓" in page.list.item(0).text())  # re-checked after
         self.assertIn("Google Chrome ✓", page.on_deck.text())
@@ -507,6 +507,78 @@ class TestWindow(Env):
         self.wait_for(lambda: self.win.installed.list.count() == 0)
         self.assertTrue(self.win.installed.empty.isVisible())
         self.assertEqual(core.steam_shortcuts([self.steam]), [])
+
+    def _fake_flatpak(self, installed=()):
+        from tests.test_streaming import FAKE_FLATPAK
+        bindir = self.tmp / "flatpak-bin"
+        bindir.mkdir(exist_ok=True)
+        (bindir / "flatpak").write_text(FAKE_FLATPAK)
+        (bindir / "flatpak").chmod(0o755)
+        db = self.tmp / "fp.db"
+        db.write_text("".join(f"{a}\n" for a in installed))
+        os.environ.update(PATH=f"{bindir}:{os.environ['PATH']}", FAKE_FLATPAK_LOG=str(self.tmp / "fp.log"),
+                          FAKE_FLATPAK_DB=str(db))
+        return db
+
+    def _streaming_page(self):
+        self.win.show_streaming()
+        page = self.win.streaming
+        self.wait_for(lambda: page.installed is not None)
+        return page
+
+    def _row(self, page, svc_id):
+        return next(i for i in range(page.list.count()) if page.list.item(i).data(Qt.ItemDataRole.UserRole) == svc_id)
+
+    def test_with_no_browser_the_dialog_asks_which_one_to_install(self):
+        db = self._fake_flatpak()
+        page = self._streaming_page()
+        self.answers = [1]  # the second browser offered: Edge
+        page._activate(page.list.item(self._row(page, "amazon-luna")))
+        self.assertEqual(self.asked[-1], "Which browser for Amazon Luna?")
+        self.wait_for(lambda: "com.microsoft.Edge" in db.read_text())
+        self.wait_for(lambda: core.Library(self.paths).load() != [])
+        self.assertNotIn("com.google.Chrome", db.read_text())
+        self.assertIn("B=com.microsoft.Edge", Path(core.Library(self.paths).load()[0].launcher).read_text())
+
+    def test_cancelling_the_browser_question_installs_and_adds_nothing(self):
+        db = self._fake_flatpak()
+        page = self._streaming_page()
+        self.answers = [3]  # Cancel
+        page._activate(page.list.item(self._row(page, "amazon-luna")))
+        self.pump(10)
+        self.assertEqual(db.read_text(), "")
+        self.assertEqual(core.Library(self.paths).load(), [])
+        self.assertEqual(core.steam_shortcuts([self.steam]), [])
+
+    def test_with_a_browser_already_there_nothing_is_asked(self):
+        self._fake_flatpak(["com.microsoft.Edge"])
+        page = self._streaming_page()
+        self.answers = [0]  # Add to Steam
+        page._activate(page.list.item(self._row(page, "amazon-luna")))
+        self.assertEqual(self.asked[-1], "Add Amazon Luna to Steam?")
+        self.assertNotIn("Which browser for Amazon Luna?", self.asked)
+        self.wait_for(lambda: core.Library(self.paths).load() != [])
+
+    def test_a_home_streaming_app_never_asks_for_a_browser(self):
+        self._fake_flatpak()
+        page = self._streaming_page()
+        self.answers = [0]
+        page._activate(page.list.item(self._row(page, "moonlight")))
+        self.assertFalse([t for t in self.asked if t.startswith("Which browser")])
+        self.wait_for(lambda: core.Library(self.paths).load() != [])  # (let the set-up finish before the window goes)
+        self.wait_for(lambda: not self.win.workers)
+
+    def test_a_services_own_sign_in_survives_deckhand_restarting(self):
+        # Deckhand rewrites streaming launchers every time it starts: that must not drop the profile folder.
+        from deckhand import streaming
+        self._fake_flatpak(["com.google.Chrome"])
+        app = streaming.set_up(streaming.service("amazon-luna"), self.paths, roots=[self.steam])
+        launcher = Path(app.launcher)
+        self.assertIn("--user-data-dir", launcher.read_text())
+        launcher.write_text("#!/bin/bash\n# stale\n")
+        self.win.refresh_launchers()
+        self.wait_for(lambda: "# stale" not in launcher.read_text())
+        self.assertIn('"--user-data-dir=$HOME/.var/app/$B/data/deckhand/amazon-luna"', launcher.read_text())
 
     def test_old_streaming_launchers_are_rewritten_on_start(self):
         from tests.test_streaming import FAKE_FLATPAK

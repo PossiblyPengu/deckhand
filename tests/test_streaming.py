@@ -19,7 +19,9 @@ case "$1" in
   install) [ -n "$FAKE_FLATPAK_FAIL" ] && { echo "error: no network"; exit 1; }
            [ "$2" = --system ] && [ -n "$FAKE_FLATPAK_SYSTEM_DENIED" ] && { echo "error: Not authorized"; exit 1; }
            echo "Installing ${@: -1}"; echo "${@: -1}" >> "$db"; echo "$2 ${@: -1}" >> "$db.scope" ;;
-  info) # where it is: as recorded by install; apps put in the db by a test count as --user installs
+  info) # unscoped (what a launcher runs): installed anywhere
+        if [ "$2" != --user ] && [ "$2" != --system ]; then grep -qx "$2" "$db" 2>/dev/null && exit 0; exit 1; fi
+        # where it is: as recorded by install; apps put in the db by a test count as --user installs
         grep -qxF -- "$2 ${@: -1}" "$db.scope" 2>/dev/null && exit 0
         [ "$2" = --user ] && grep -qx "${@: -1}" "$db" 2>/dev/null && ! grep -qF -- " ${@: -1}" "$db.scope" 2>/dev/null && exit 0
         exit 1 ;;
@@ -56,7 +58,8 @@ class TestStreaming(FlatpakEnv):
         self.assertIn("install --system -y --noninteractive flathub com.google.Chrome", calls)
         self.assertIn("override --user --filesystem=/run/udev:ro com.google.Chrome", calls)
         script = Path(app.launcher).read_text()
-        self.assertIn("flatpak run com.google.Chrome --kiosk", script)
+        self.assertIn("B=com.google.Chrome", script)
+        self.assertIn('exec flatpak run "$B" --kiosk', script)
         self.assertIn("--window-size=1024,640", script)
         self.assertIn("--force-device-scale-factor=1.25", script)
         self.assertIn("--kiosk", script)
@@ -113,7 +116,7 @@ class TestStreaming(FlatpakEnv):
         self.flatpak_db.write_text("com.microsoft.Edge\n")
         app = streaming.set_up(streaming.service("amazon-luna"), self.paths, roots=[self.steam])
         self.assertFalse([c for c in self.calls() if c.startswith("install")])
-        self.assertIn("flatpak run com.microsoft.Edge", Path(app.launcher).read_text())
+        self.assertIn("B=com.microsoft.Edge", Path(app.launcher).read_text())
 
     def test_home_streaming_app(self):
         app = streaming.set_up(streaming.service("moonlight"), self.paths, roots=[self.steam])
@@ -183,17 +186,18 @@ class TestStreaming(FlatpakEnv):
         self.assertEqual(script["matches"], ["https://www.xbox.com/*/play*"])
         self.assertTrue((ext / "better-xcloud.user.js").read_text().startswith("// ==UserScript=="))
         launcher = Path(app.launcher).read_text()
-        self.assertIn("flatpak run org.chromium.Chromium --kiosk", launcher)
+        self.assertIn("B=org.chromium.Chromium", launcher)
+        self.assertIn('exec flatpak run "$B" --kiosk', launcher)
         self.assertIn(f"--load-extension={ext}", launcher)
         self.assertEqual(launcher.count(f"--load-extension={ext}"), 2)
         self.assertIn("curl -fsL", launcher)  # keeps itself up to date
-        self.assertEqual(app.options, ["better-xcloud"])
+        self.assertEqual(app.options, ["better-xcloud", "own-profile"])
         # Setting it up again keeps the choice; turning it off goes back to Chrome. One shortcut throughout.
         self.assertEqual(streaming.set_up(svc, self.paths, roots=[self.steam], fetch=self._fake_bx).options,
-                         ["better-xcloud"])
+                         ["better-xcloud", "own-profile"])
         app = streaming.set_up(svc, self.paths, roots=[self.steam], better_xcloud=False)
-        self.assertEqual(app.options, [])
-        self.assertIn("flatpak run com.google.Chrome", Path(app.launcher).read_text())
+        self.assertEqual(app.options, ["own-profile"])
+        self.assertIn("B=com.google.Chrome", Path(app.launcher).read_text())
         self.assertNotIn("load-extension", Path(app.launcher).read_text())
         self.assertEqual(len(core.steam_shortcuts([self.steam])), 1)
 
@@ -223,7 +227,7 @@ class TestStreaming(FlatpakEnv):
     def test_better_xcloud_is_only_for_xbox(self):
         app = streaming.set_up(streaming.service("geforce-now"), self.paths, roots=[self.steam], better_xcloud=True,
                                fetch=self._fake_bx)
-        self.assertEqual(app.options, [])
+        self.assertNotIn("better-xcloud", app.options)
         self.assertNotIn("load-extension", Path(app.launcher).read_text())
 
     def test_shortcuts_made_outside_are_recognised(self):
@@ -238,7 +242,7 @@ class TestStreaming(FlatpakEnv):
         found = {svc.id: [e["AppName"] for e in streaming.spots(svc, entries, self.paths.launchers)]
                  for svc in streaming.SERVICES}
         self.assertEqual(found, {"xbox-cloud": ["Google Chrome"], "geforce-now": ["GFN"], "amazon-luna": [],
-                                 "boosteroid": [], "moonlight": ["Moonlight"], "chiaki-ng": []})
+                                 "boosteroid": [], "moonlight": ["Moonlight"], "chiaki-ng": [], "greenlight": []})
 
     def test_an_appimage_or_command_counts_as_installed(self):
         apps = self.home / "Applications"
@@ -269,3 +273,108 @@ class TestStreaming(FlatpakEnv):
         self.assertFalse(Path(app.launcher).exists())
         self.assertEqual(core.steam_shortcuts([self.steam]), [])
         self.assertTrue(self.tmp.exists() and Path.cwd().exists())  # an empty prefix path deletes nothing
+
+
+class TestStreamingSignInAndLauncher(FlatpakEnv):
+    """Each cloud service keeps its own sign-in; the launcher finds a browser when it runs."""
+
+    def run_launcher(self, launcher: str, **env):
+        e = dict(os.environ, SteamGamepadUI="1", **env)
+        return subprocess.run(["bash", launcher], env=e, capture_output=True, text=True)
+
+    def test_a_new_cloud_service_gets_its_own_profile_folder(self):
+        app = streaming.set_up(streaming.service("amazon-luna"), self.paths, roots=[self.steam])
+        self.assertIn("own-profile", app.options)
+        text = Path(app.launcher).read_text()
+        self.assertEqual(text.count('"--user-data-dir=$HOME/.var/app/$B/data/deckhand/amazon-luna"'), 2)  # both modes
+        self.assertEqual(streaming.profile_dir("com.google.Chrome", streaming.service("amazon-luna"), self.home),
+                         self.home / ".var/app/com.google.Chrome/data/deckhand/amazon-luna")
+
+    def test_two_services_never_share_a_profile(self):
+        a = streaming.set_up(streaming.service("amazon-luna"), self.paths, roots=[self.steam])
+        b = streaming.set_up(streaming.service("boosteroid"), self.paths, roots=[self.steam])
+        self.assertIn("deckhand/amazon-luna", Path(a.launcher).read_text())
+        self.assertNotIn("deckhand/boosteroid", Path(a.launcher).read_text())
+        self.assertIn("deckhand/boosteroid", Path(b.launcher).read_text())
+
+    def test_a_service_set_up_before_profiles_keeps_its_shared_sign_in(self):
+        svc = streaming.service("boosteroid")
+        app = streaming.set_up(svc, self.paths, roots=[self.steam])
+        app.options = []  # as an older Deckhand left it
+        core.Library(self.paths).upsert(app)
+        again = streaming.set_up(svc, self.paths, roots=[self.steam])
+        self.assertNotIn("own-profile", again.options)
+        self.assertNotIn("user-data-dir", Path(again.launcher).read_text())
+
+    def test_apps_for_home_streaming_have_no_browser_profile(self):
+        app = streaming.set_up(streaming.service("moonlight"), self.paths, roots=[self.steam])
+        self.assertEqual(app.options, [])
+        self.assertNotIn("user-data-dir", Path(app.launcher).read_text())
+
+    def test_the_launcher_uses_another_browser_when_the_chosen_one_is_gone(self):
+        app = streaming.set_up(streaming.service("amazon-luna"), self.paths, roots=[self.steam])  # Chrome
+        self.flatpak_db.write_text("com.microsoft.Edge\n")  # Chrome was uninstalled; Edge is there now
+        self.flatpak_log.write_text("")
+        r = self.run_launcher(app.launcher)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        run = next(c for c in self.calls() if c.startswith("run "))
+        self.assertTrue(run.startswith("run com.microsoft.Edge "), run)
+        self.assertIn("--user-data-dir=" + str(Path.home()) + "/.var/app/com.microsoft.Edge/data/deckhand/amazon-luna", run)
+
+    def test_the_launcher_says_so_when_no_browser_is_left(self):
+        app = streaming.set_up(streaming.service("amazon-luna"), self.paths, roots=[self.steam])
+        self.flatpak_db.write_text("")  # nothing installed any more
+        self.flatpak_log.write_text("")
+        r = self.run_launcher(app.launcher)
+        self.assertEqual(r.returncode, 1)
+        log = (self.paths.logs / "stream-amazon-luna-launch.log").read_text()  # (a launcher writes its output there)
+        self.assertIn("Amazon Luna needs a web browser", log)
+        self.assertIn("pick Amazon Luna again", log)
+        self.assertFalse([c for c in self.calls() if c.startswith("run ")])
+
+    def test_better_xcloud_never_falls_back_to_a_browser_that_cannot_load_it(self):
+        def fake(url):
+            return (b"// ==UserScript==\n// @name Better xCloud\n// @version 1.0\n// @match https://www.xbox.com/*/play*\n"
+                    b"// ==/UserScript==\nconsole.log(1)\n")
+        app = streaming.set_up(streaming.service("xbox-cloud"), self.paths, roots=[self.steam], better_xcloud=True,
+                               fetch=fake)
+        self.flatpak_db.write_text("com.google.Chrome\n")  # only Chrome: it can't load the extension
+        r = self.run_launcher(app.launcher)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("needs a web browser", (self.paths.logs / "stream-xbox-cloud-launch.log").read_text())
+
+    def test_greenlight_installs_as_an_app(self):
+        svc = streaming.service("greenlight")
+        self.assertEqual(svc.app, "io.github.unknownskl.greenlight")
+        app = streaming.set_up(svc, self.paths, roots=[self.steam])
+        self.assertIn("install --system -y --noninteractive flathub io.github.unknownskl.greenlight", self.calls())
+        self.assertIn("exec flatpak run io.github.unknownskl.greenlight", Path(app.launcher).read_text())
+        self.assertTrue((Path(core.__file__).parent / "logos/greenlight.png").is_file())
+
+    def test_there_is_no_steam_link_entry(self):  # (the Deck streams Steam games natively)
+        self.assertIsNone(streaming.service("steam-link"))
+        self.assertFalse([s for s in streaming.SERVICES if "SteamLink" in s.app])
+
+    def test_the_browser_download_is_described_in_plain_words(self):
+        self.assertEqual(streaming.download_note("com.google.Chrome"), "about 160 MB")
+        self.assertEqual(streaming.download_note("com.microsoft.Edge"), "about 210 MB")
+        self.assertEqual(streaming.download_note("com.moonlight_stream.Moonlight"), "")
+
+    def test_the_browser_to_install_can_be_chosen(self):
+        svc = streaming.service("amazon-luna")
+        self.assertEqual(streaming.needs(svc, set()), "com.google.Chrome")  # (the default)
+        self.assertEqual(streaming.needs(svc, set(), prefer="com.microsoft.Edge"), "com.microsoft.Edge")
+        self.assertEqual(streaming.needs(svc, set(), prefer="not.a.browser"), "com.google.Chrome")
+        # One that is already installed is never replaced by the preference.
+        self.assertIsNone(streaming.needs(svc, {"org.chromium.Chromium"}, prefer="com.microsoft.Edge"))
+        # Better xCloud only ever runs in Chromium, whatever was preferred.
+        self.assertEqual(streaming.needs(streaming.service("xbox-cloud"), set(), True, "com.microsoft.Edge"),
+                         "org.chromium.Chromium")
+
+    def test_set_up_installs_only_the_chosen_browser(self):
+        app = streaming.set_up(streaming.service("boosteroid"), self.paths, roots=[self.steam],
+                               browser="com.microsoft.Edge")
+        installs = [c for c in self.calls() if c.startswith("install")]
+        self.assertEqual(len(installs), 1)
+        self.assertIn("com.microsoft.Edge", installs[0])
+        self.assertIn("B=com.microsoft.Edge", Path(app.launcher).read_text())
