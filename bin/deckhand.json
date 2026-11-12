@@ -1,5 +1,5 @@
 {
-  "version": "4.2.4",
-  "sha256": "67e747fdcbe9b7d3f7f24af603c5186fac5fee394303b27da9128f3a08ae122c",
-  "notes": "Uninstalling never deletes a folder Deckhand didn't install: a folder you picked a program from, or anything in a hidden folder such as ~/.local. Turning Better xCloud on or off no longer adds a second Steam shortcut, the menu no longer leaves a running install out of reach, and Fix it no longer closes Deckhand on some .NET programs."
+  "version": "4.3.0",
+  "sha256": "f1132dd5ec560be69268531db3a3f3f04140b6eb1b2d3f0c4155f971b2932801",
+  "notes": "Matches its sister app Arcadia (Dusk and Cloud looks, a Start checklist, Arcadia in Add-ons). Adds Nexus Launcher for Xbox and Game Pass PC games. Quick install for Inno Setup, NSIS and MSI installers, and .zip/.7z/.rar/.iso archives are unpacked for you. Downloads resume and retry, never keep a short file, check disk space first and show speed and time left. Installer errors are explained in plain words."
 }
