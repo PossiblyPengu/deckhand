@@ -101,7 +101,8 @@ def ensure_app_icon() -> None:
         artwork.install_app_icon(data)
 
 
-def glyph_icon(kind: str, color: str = theme.TEXT_DIM) -> QIcon:
+def glyph_icon(kind: str, color: str | None = None) -> QIcon:
+    color = color or theme.TEXT_DIM
     pm = QPixmap(48, 48)
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
@@ -292,7 +293,7 @@ class HomePage(Page):
         self.banner = QFrame()
         self.banner.setObjectName("banner")
         self.banner.setStyleSheet(f"QFrame#banner {{ background: {theme.SURFACE}; border: 2px solid {theme.ACCENT};"
-                                  " border-radius: 12px; }")
+                                  " border-radius: 22px; }")
         b = QHBoxLayout(self.banner)
         b.setContentsMargins(20, 10, 12, 10)
         self.banner_text = ElideLabel(mode=Qt.TextElideMode.ElideRight)
@@ -2621,6 +2622,7 @@ class MainWindow(QMainWindow):
             ("Remove duplicate Steam shortcuts", self.remove_duplicates),
             ("SteamGridDB art", self.steamgriddb_menu),
             ("Look for installers again", look_again),
+            ("Light look" if theme.SCHEME == "dusk" else "Dark look", self.switch_look),
             ("About", about),
             ("Quit Deckhand", self.close),
             ("Close", None),
@@ -2706,6 +2708,16 @@ class MainWindow(QMainWindow):
 
         self.run_worker(run, finished, lambda m: Sheet.ask(self, "Couldn't uninstall", m, ("Close",)),
                         kind="uninstall")
+
+    def switch_look(self) -> None:
+        """Dusk ⇄ cloud, Arcadia's two schemes. Remembered; everything drawn from now on uses it."""
+        look = "cloud" if theme.SCHEME == "dusk" else "dusk"
+        theme.use(look)
+        self.paths.remember(look=look)
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(theme.STYLE)
+        self.flash("Reopen Deckhand to see the new look everywhere")
 
     # ── free up space ────────────────────────────────────────────────────
 
@@ -3017,6 +3029,8 @@ def main(argv: list[str] | None = None) -> int:
         print("Deckhand is already open — passed it on.")
         return 0
     app.setStyle("Fusion")
+    theme.load_fonts()
+    theme.use(core.Paths.default().state().get("look", "dusk"))
     app.setStyleSheet(theme.STYLE)
     win = MainWindow()
     instance = SingleInstance()
