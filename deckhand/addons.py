@@ -345,14 +345,21 @@ def arcadia_release(fetch: Callable[[str], bytes] | None = None) -> tuple[str, s
         raise core.InstallError("Couldn't find Arcadia's Steam Deck download in its latest release. Try again later.")
     digest = str(asset.get("digest") or "")
     sha = digest.split(":", 1)[1].lower() if digest.startswith("sha256:") else ""
+    if not re.fullmatch(r"[0-9a-f]{64}", sha):
+        raise core.InstallError("Arcadia's release doesn't list a checksum for its download, so nothing was "
+                                "downloaded. Try again later.")
     return str(data.get("tag_name", "")).lstrip("v"), str(asset["browser_download_url"]), sha
 
 
 def download_arcadia(progress: Callable[[int, int], None] = lambda done, total: None,
-                     fetch: Callable[[str], bytes] | None = None, opener=None, home: Path | None = None) -> str:
+                     fetch: Callable[[str], bytes] | None = None, opener=None, home: Path | None = None,
+                     info: dict | None = None) -> str:
     """Download Arcadia's latest AppImage into ~/Applications (over the one there, once it's whole and
-    checked). Returns its version."""
+    checked against the SHA-256 GitHub lists for it). Returns its version. `info` is filled with what was
+    fetched ({"url", "sha", "algo", "verified"}) for the download log."""
     version, url, sha = arcadia_release(fetch)
+    if info is not None:
+        info.update(url=url, sha=sha, algo="sha256", verified=True)
     dest = arcadia_app(home) or (home or Path.home()) / "Applications" / ARCADIA_APPIMAGE
 
     def check(head: bytes) -> None:
@@ -486,19 +493,31 @@ def nexus_release(fetch: Callable[[str], bytes] | None = None, arch: str | None 
                                 f"lists: {', '.join(seen[:8]) or 'no files'}.")
     sha = ""
     side = next((a for a in assets if a.get("name") == asset["name"] + ".sha512sum"), None)
-    if side is not None:
+    if side is not None:  # a checksum is published, so it is required: never fall back to trusting the file
         try:
-            sha = parse_sha512sum(get(str(side["browser_download_url"])).decode("utf-8", "replace"), asset["name"])
-        except OSError:
-            sha = ""  # (the download is still checked to be an AppImage)
+            text = get(str(side["browser_download_url"])).decode("utf-8", "replace")
+        except (OSError, updater.UpdateError) as e:
+            raise core.InstallError("Couldn't read the checksum that Nexus Launcher publishes for this download "
+                                    f"({e}), so nothing was downloaded. Try again.") from None
+        sha = parse_sha512sum(text, asset["name"])
+        if not sha:
+            raise core.InstallError("Nexus Launcher's checksum file doesn't list this download, so nothing was "
+                                    "downloaded. Try again later.")
     return str(data.get("tag_name", "")).lstrip("v"), str(asset["browser_download_url"]), sha
 
 
 def download_nexus(progress: Callable[[int, int], None] = lambda done, total: None,
-                   fetch: Callable[[str], bytes] | None = None, opener=None, home: Path | None = None) -> str:
+                   fetch: Callable[[str], bytes] | None = None, opener=None, home: Path | None = None,
+                   info: dict | None = None, note: Callable[[str], None] = lambda s: None) -> str:
     """Download the newest Nexus Launcher AppImage (over the one there, once it's whole and checked). Returns
-    its version. A copy from the project's own installer is updated where it is."""
+    its version. A copy from the project's own installer is updated where it is. When the release publishes no
+    checksum, `note` says so (nothing but "it is a program" can be checked then); `info` is filled with what was
+    fetched ({"url", "sha", "algo", "verified"}) for the download log."""
     version, url, sha = nexus_release(fetch)
+    if info is not None:
+        info.update(url=url, sha=sha, algo="sha512", verified=bool(sha))
+    if not sha:
+        note("This release publishes no checksum, so only that the file is a program could be checked.")
     dest = nexus_app(home) or (home or Path.home()) / "Applications" / NEXUS_APPIMAGE
 
     def check(head: bytes) -> None:

@@ -73,14 +73,14 @@ Nothing so far ran on a Deck. Do this once, write down what breaks.
 - Suspend and resume during a download and during an install.
 - Write `docs/DECK-TEST.md` (one page, tick boxes) so every release can be checked the same way. **M**, done when the checklist exists and its first run is recorded.
 
-### Phase 2: trust (security fixes above)
-1. **One verified-download helper** used by every add-on: checksum required when the release provides one; mismatch or unreadable = stop, never fall back; if a release provides none, say so in the dialog before downloading. **M**
-2. **Arcadia self-update verifies SHA-256** (GitHub lists a digest per asset) before replacing the AppImage, and before running anything from the extras archive. **S**
-3. Print the version of everything downloaded into the install log. **S**
+### Phase 2: trust (security fixes above) — mostly done
+1. ~~**One verified-download helper**~~ Done for the add-ons: a published checksum is required (unreadable or not listing the file = stop), a release with none is said out loud, GE-Proton and Arcadia refuse to proceed without one. Left: the store installers and Windows fixes (vendors publish no checksums) and Decky's script. **M**
+2. ~~**Arcadia self-update verifies SHA-256**~~ Done in Arcadia 0.1.3 (merge pending), with tests that tamper with the AppImage and the extras archive. **S**
+3. ~~Print the version of everything downloaded into the install log.~~ Done for the add-ons: `logs/downloads.log`. **S**
 Done when: a corrupted or swapped download in tests is refused for every download type.
 
 ### Phase 3: correctness
-1. Sorter: reuse an existing alias folder (`megadrive`/`genesis`, and similar pairs) instead of creating a second one; test it. **S**
+1. ~~Sorter: reuse an existing alias folder~~ Done in Arcadia 0.1.3 (merge pending). **S**
 2. Regenerate all Arcadia docs screenshots from the built program with a script (`scripts/screenshots.sh`, the recipe used in this audit) so they never go stale. **M**
 3. Fix the 16 flake8 nits and the few real mypy findings (a few places that call uninstall with a value mypy thinks may be `None`, probably false alarms but cheap to make explicit; one wrong type in the updater's source list). **S**
 

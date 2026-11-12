@@ -117,8 +117,14 @@ class MainWindow(QMainWindow):
             self.flash(f"Steam has {len(dupes)} duplicate shortcut{'s' * (len(dupes) != 1)} — "
                        "☰ Menu → Remove duplicate Steam shortcuts", ms=8000)
         QTimer.singleShot(0, self.check_leftovers)
-        QTimer.singleShot(3500, self.auto_add_self_to_steam)
-        QTimer.singleShot(2000, self.refresh_better_xcloud)  # (after the window is up; at most every six hours)
+        # Quiet jobs a moment after the window is up (kept so a test can stop them: they must not fire at random).
+        self.startup_timers = []
+        for delay, job in ((3500, self.auto_add_self_to_steam), (2000, self.refresh_better_xcloud)):
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(job)
+            timer.start(delay)
+            self.startup_timers.append(timer)
         if check_updates is None:
             check_updates = updater.self_path() is not None and not os.environ.get("DECKHAND_NO_UPDATE_CHECK")
         if check_updates:

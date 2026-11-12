@@ -209,6 +209,9 @@ class AddonsPage(Page):
         def finished(_path) -> None:
             self.status.setText("")
             self.show_progress(None)
+            core.record_download(self.win.paths, "GE-Proton", release.version,
+                                 {"url": release.url, "algo": "sha512", "sha": "(from its .sha512sum file)",
+                                  "verified": True})
             self.win.flash(f"{release.version} is installed", ms=5000)
             self.refresh()
 
@@ -246,6 +249,7 @@ class AddonsPage(Page):
 
     def _download_arcadia(self, a: addons.Addon) -> None:
         self.status.setText("Downloading Arcadia…")
+        info: dict = {}  # what was fetched, for the download log
 
         def run(status):
             report = getattr(status, "progress", lambda pct: None)
@@ -257,7 +261,7 @@ class AddonsPage(Page):
                     status(xfer.text(done, total))
                     report(done * 100 // total)
             report(-1)
-            version = addons.download_arcadia(progress)
+            version = addons.download_arcadia(progress, info=info)
             status("Adding Arcadia to Steam…")
             report(-1)
             return version, addons.set_up_arcadia(self.win.paths)
@@ -267,6 +271,7 @@ class AddonsPage(Page):
             self.status.setText("")
             self.show_progress(None)
             self.win.paths.remember(arcadia_version=version)
+            core.record_download(self.win.paths, "Arcadia", version, info)
             self.win._write_art(app, artwork.load_icon(app.icon))
             self.win._say_added(app, "Add-ons → Arcadia")
             self.refresh()
@@ -342,6 +347,7 @@ class AddonsPage(Page):
 
     def _download_nexus(self, a: addons.Addon) -> None:
         self.status.setText("Downloading Nexus Launcher…")
+        info: dict = {}  # what was fetched, for the download log (and whether anything could check it)
 
         def run(status):
             report = getattr(status, "progress", lambda pct: None)
@@ -353,7 +359,7 @@ class AddonsPage(Page):
                     status(xfer.text(done, total))
                     report(done * 100 // total)
             report(-1)
-            version = addons.download_nexus(progress)
+            version = addons.download_nexus(progress, info=info, note=lambda text: info.update(note=text))
             status("Adding Nexus Launcher to Steam…")
             report(-1)
             return version, addons.set_up_nexus(self.win.paths)
@@ -363,9 +369,12 @@ class AddonsPage(Page):
             self.status.setText("")
             self.show_progress(None)
             self.win.paths.remember(nexus_version=version)
+            core.record_download(self.win.paths, "Nexus Launcher", version, info)
             self.win._write_art(app, artwork.load_icon(app.icon))
             self.win._say_added(app, "Add-ons → Xbox PC games")
             self.refresh()
+            if info.get("note"):  # (a release that publishes no checksum: say so rather than staying quiet)
+                Sheet.ask(self, "Nexus Launcher is installed", info["note"], ("Close",))
 
         self.win.run_worker(run, finished, self._failed("Nexus Launcher"), status=self.status.setText, kind="addon",
                             progress=self.show_progress)

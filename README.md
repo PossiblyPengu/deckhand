@@ -38,6 +38,7 @@ pill on its card.
 - **Records DirectX setup errors:** if the installer runs Microsoft's DirectX setup, its own error log is copied into Deckhand's install log. (That setup often reports errors under Proton; Proton already includes DirectX, so programs usually run anyway.)
 - **Shows real progress:** how much the installer has written so far and how fast, with an estimate against the installer's size for big installs, and a heads-up when nothing is happening because the installer is waiting for you. Flathub downloads show a percentage.
 - **Downloads carefully:** every download (store installers, Proton, Visual C++/.NET fixes, add-ons) shows its speed and time left, carries on where it stopped if the connection drops (it retries a few times), never keeps a file that is shorter than the server said, and checks there is room on the disk before it starts.
+- **Checks what it downloads:** where a release publishes a checksum (GE-Proton, Arcadia, Nexus Launcher, Deckhand's own updates), the file must match it, and a checksum that can't be read, or doesn't list the file, stops the download instead of being skipped. Where none is published, Deckhand says so. Every add-on download is written to `~/.local/share/deckhand/logs/downloads.log` with its version, where it came from and how it was checked.
 - **Keeps the Deck awake while installing** (when the system allows it), so a long install isn't paused by sleep.
 
 ## Game stores

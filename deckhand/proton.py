@@ -67,20 +67,20 @@ def install(release: Release, roots: Iterable[Path] | None = None,
     need = release.size * 4 if release.size else 2 << 30  # the download, plus about three times that unpacked
     if core.free_space(tools) < need:
         raise core.InstallError(f"GE-Proton needs about {core.human_size(need)} of free space while it's installed.")
-    expected = ""
-    if release.sha512_url:
-        text = (fetch or (lambda url: updater.fetch(url, timeout=30)))(release.sha512_url).decode(errors="replace")
-        m = re.match(r"\s*([0-9a-fA-F]{128})\b", text)
-        if not m:
-            raise core.InstallError("GE-Proton's checksum didn't download correctly. Try again later.")
-        expected = m.group(1).lower()
+    if not release.sha512_url:  # (every GE-Proton release has one: without it the download can't be trusted)
+        raise core.InstallError("GE-Proton's release has no checksum file, so nothing was downloaded. Try again later.")
+    text = (fetch or (lambda url: updater.fetch(url, timeout=30)))(release.sha512_url).decode(errors="replace")
+    m = re.match(r"\s*([0-9a-fA-F]{128})\b", text)
+    if not m:
+        raise core.InstallError("GE-Proton's checksum didn't download correctly. Try again later.")
+    expected = m.group(1).lower()
     work = tools / f".deckhand-{release.version}"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     try:
         digest = hashlib.sha512()
         tarball = updater.download_to(release.url, work / "download.tar.gz", progress, opener, digest=digest)
-        if expected and digest.hexdigest() != expected:
+        if digest.hexdigest() != expected:
             raise core.InstallError("The GE-Proton download was damaged (its checksum doesn't match). Try again.")
         status(f"Unpacking {release.version}…")
         unpacked = work / "unpacked"

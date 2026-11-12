@@ -76,3 +76,11 @@ class TestGEProton(Env):
     def test_no_release_asset_is_explained(self):
         with self.assertRaises(core.InstallError):
             proton.latest(lambda url: json.dumps({"tag_name": "x", "assets": []}).encode())
+
+    def test_a_release_with_no_checksum_file_is_refused(self):
+        tar = ge_tarball()
+        release = proton.Release("GE-Proton10-99", "https://example.invalid/ge.tar.gz", len(tar), "")  # (no .sha512sum)
+        with self.assertRaises(core.InstallError) as ctx:
+            proton.install(release, [self.steam], fetch=lambda url: b"", opener=lambda url: FakeResponse(tar))
+        self.assertIn("no checksum file", str(ctx.exception))
+        self.assertEqual(proton.installed([self.steam]), ["GE-Proton9-20"])  # nothing was installed

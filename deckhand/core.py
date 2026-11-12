@@ -1111,6 +1111,21 @@ def human_size(n: int) -> str:
     return f"{n} B"
 
 
+def record_download(paths: "Paths", what: str, version: str, info: dict | None = None) -> None:
+    """One line in logs/downloads.log for everything Deckhand downloads and installs: when, what, which version,
+    where it came from and how it was checked. (For a bug report, or to see what a download really was.)"""
+    info = info or {}
+    how = (f"checked against {info.get('algo', 'a checksum')} {info.get('sha', '')}".strip() if info.get("verified")
+           else "NOT checked against a published checksum")
+    line = f"{time.strftime('%Y-%m-%d %H:%M')}  {what} {version}  {info.get('url', '')}  {how}\n"
+    try:
+        paths.logs.mkdir(parents=True, exist_ok=True)
+        with open(paths.logs / "downloads.log", "a", encoding="utf-8") as f:
+            f.write(line)
+    except OSError:
+        pass
+
+
 def human_duration(seconds: float) -> str:
     seconds = int(seconds + 0.5)
     if seconds < 60:

@@ -467,3 +467,83 @@ class TestNexusFindsTheRealReleaseFiles(Env):
         self.assertEqual((self.home / "Applications" / addons.NEXUS_APPIMAGE).read_bytes(), body)
         with self.assertRaises(core.InstallError):  # a wrong checksum is still refused
             addons.download_nexus(fetch=get, opener=lambda url: FakeResponse(b"\x7fELF" + b"1" * 50))
+
+
+class TestDownloadsAreChecked(Env):
+    """A checksum that is published is required; one that is missing is said out loud; what was fetched is recorded."""
+
+    BODY = b"\x7fELF" + b"\0" * 3000
+
+    def nexus(self, sidecar="good", has_sidecar=True):
+        import hashlib
+        name = "Xodus-Nexus-0.5.0-x86_64.AppImage"
+        assets = [{"name": name, "browser_download_url": "https://example.invalid/app"}]
+        if has_sidecar:
+            assets.append({"name": name + ".sha512sum", "browser_download_url": "https://example.invalid/sum"})
+
+        def get(url):
+            if url.endswith("/sum"):
+                if sidecar == "unreadable":
+                    raise OSError("connection reset")
+                if sidecar == "other-file":
+                    return f"{hashlib.sha512(self.BODY).hexdigest()}  Some-Other-File.AppImage\n".encode()
+                return f"{hashlib.sha512(self.BODY).hexdigest()}  {name}\n".encode()
+            return json.dumps({"tag_name": "v0.5.0", "assets": assets}).encode()
+        return get
+
+    def test_a_published_checksum_that_cannot_be_read_stops_the_download(self):
+        opened = []
+        with self.assertRaises(core.InstallError) as ctx:
+            addons.download_nexus(fetch=self.nexus("unreadable"),
+                                  opener=lambda url: (opened.append(url), FakeResponse(self.BODY))[1])
+        self.assertIn("nothing was downloaded", str(ctx.exception))
+        self.assertEqual(opened, [])  # (the file itself was never even requested)
+
+    def test_a_checksum_file_that_does_not_list_the_download_stops_it(self):
+        with self.assertRaises(core.InstallError) as ctx:
+            addons.download_nexus(fetch=self.nexus("other-file"), opener=lambda url: FakeResponse(self.BODY))
+        self.assertIn("doesn't list this download", str(ctx.exception))
+
+    def test_no_published_checksum_is_said_out_loud_and_recorded_as_unchecked(self):
+        notes, info = [], {}
+        addons.download_nexus(fetch=self.nexus(has_sidecar=False), opener=lambda url: FakeResponse(self.BODY),
+                              info=info, note=notes.append)
+        self.assertEqual(len(notes), 1)
+        self.assertIn("publishes no checksum", notes[0])
+        self.assertFalse(info["verified"])
+
+    def test_a_checked_download_is_recorded_as_checked(self):
+        notes, info = [], {}
+        addons.download_nexus(fetch=self.nexus(), opener=lambda url: FakeResponse(self.BODY), info=info,
+                              note=notes.append)
+        self.assertEqual(notes, [])
+        self.assertTrue(info["verified"])
+        self.assertEqual((info["algo"], len(info["sha"])), ("sha512", 128))
+        self.assertTrue(info["url"].endswith("/app"))
+
+    def test_arcadia_without_a_usable_checksum_is_refused(self):
+        for digest in ("", "sha1:" + "a" * 40, "sha256:abc", "sha256:" + "z" * 64):
+            body = json.dumps({"tag_name": "v1", "assets": [{"name": addons.ARCADIA_APPIMAGE,
+                                                              "browser_download_url": "https://example.invalid/a",
+                                                              **({"digest": digest} if digest else {})}]}).encode()
+            with self.assertRaises(core.InstallError, msg=digest) as ctx:
+                addons.download_arcadia(fetch=lambda url: body, opener=lambda url: FakeResponse(ARCADIA_BODY))
+            self.assertIn("doesn't list a checksum", str(ctx.exception))
+        self.assertFalse((self.home / "Applications").exists() and any((self.home / "Applications").iterdir()))
+
+    def test_arcadia_reports_what_it_fetched(self):
+        info = {}
+        addons.download_arcadia(fetch=lambda url: arcadia_release(), opener=lambda url: FakeResponse(ARCADIA_BODY),
+                                info=info)
+        self.assertEqual((info["algo"], info["verified"], len(info["sha"])), ("sha256", True, 64))
+
+    def test_the_download_log_has_one_line_per_download(self):
+        core.record_download(self.paths, "Arcadia", "0.1.3", {"url": "https://x/a", "algo": "sha256", "sha": "ab" * 32,
+                                                              "verified": True})
+        core.record_download(self.paths, "Nexus Launcher", "0.5.0", {"url": "https://x/n", "verified": False})
+        lines = (self.paths.logs / "downloads.log").read_text().splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertIn("Arcadia 0.1.3", lines[0])
+        self.assertIn("checked against sha256 " + "ab" * 32, lines[0])
+        self.assertIn("NOT checked against a published checksum", lines[1])
+        self.assertRegex(lines[0], r"^\d{4}-\d\d-\d\d \d\d:\d\d  ")

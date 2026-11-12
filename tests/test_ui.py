@@ -43,6 +43,8 @@ class TestWindow(Env):
                                                                  self.answers.pop(0) if self.answers else -1)[1])
         self.downloads = self.home / "Downloads"
         self.win = app_mod.MainWindow(self.paths)
+        for timer in self.win.startup_timers:  # (quiet startup jobs: tests call them directly, never by chance)
+            timer.stop()
         self.win.installer_dirs = [self.downloads]
         self.win.show()
         self.win.activateWindow()
@@ -930,6 +932,18 @@ class TestWindow(Env):
         self.win.auto_add_self_to_steam()
         self._let_it_finish()
         self.assertEqual(len(calls), 1)
+
+    def test_the_quiet_startup_jobs_are_scheduled_in_a_normal_window(self):
+        from deckhand import app as app_mod
+        w = app_mod.MainWindow(self.paths)
+        try:
+            self.assertEqual(len(w.startup_timers), 2)
+            self.assertTrue(all(t.isActive() and t.isSingleShot() for t in w.startup_timers))
+            self.assertEqual(sorted(t.interval() for t in w.startup_timers), [2000, 3500])
+        finally:
+            for t in w.startup_timers:
+                t.stop()
+            w.close()
 
     def test_it_can_be_switched_off(self):
         calls = self._auto_add_fakes()
