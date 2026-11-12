@@ -40,7 +40,7 @@ class Update:
 
 
 class UpdateError(Exception):
-    pass
+    code = 0  # the HTTP status, when that is what failed
 
 
 class Cancelled(Exception):
@@ -78,7 +78,9 @@ def _open(url: str, timeout: float, headers: dict[str, str] | None = None):
         return urllib.request.urlopen(req, timeout=timeout, context=ctx)
     except urllib.error.HTTPError as e:
         e.close()  # an HTTP error still holds the open connection
-        raise UpdateError(f"HTTP {e.code} for {url.split('?')[0]}") from None
+        err = UpdateError(f"HTTP {e.code} for {url.split('?')[0]}")
+        err.code = e.code
+        raise err from None
 
 
 def fetch(url: str, timeout: float = 8.0, limit: int = 1 << 20, headers: dict[str, str] | None = None) -> bytes:
@@ -192,31 +194,106 @@ def download(update: Update, dest_dir: Path, progress: Callable[[int, int], None
         raise
 
 
+class Incomplete(OSError):
+    """The server closed the connection before sending the whole file."""
+
+
+RETRY_WAITS = (2.0, 5.0, 10.0)  # seconds before each retry: a Wi-Fi hiccup on a big file shouldn't cost the download
+
+
+def _retryable(e: BaseException) -> bool:
+    if isinstance(e, UpdateError):
+        return e.code in (408, 425, 429) or e.code >= 500
+    return isinstance(e, OSError)  # timeouts, resets, DNS blips, Incomplete
+
+
 def download_to(url: str, dest: Path, progress: Callable[[int, int], None] = lambda done, total: None,
-                opener=None, digest=None, check: Callable[[bytes], None] | None = None) -> Path:
+                opener=None, digest=None, check: Callable[[bytes], None] | None = None,
+                cancelled: Callable[[], bool] = lambda: False, waits: tuple[float, ...] = RETRY_WAITS) -> Path:
     """Download a file for Deckhand to use: via a temporary file next to `dest`, so `dest` only ever
-    holds a whole download. `digest`: a hashlib object fed the data as it arrives. `check`: given the
-    file's first bytes, raises if it isn't what was expected (then nothing is kept)."""
+    holds a whole download.
+
+    A download that stops half way (the connection drops, or the server closes it early) is retried after a
+    short wait, and carries on where it stopped when the server allows it (with a custom `opener` it starts again).
+    A file shorter than the server said is never kept, and a download that wouldn't fit on the disk fails before
+    it starts. `digest`: a hashlib object fed the finished file. `check`: given the file's first bytes, raises if
+    it isn't what was expected (then nothing is kept). `cancelled` is asked between chunks (raises Cancelled)."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(f".{dest.name}.download")
+    tmp.unlink(missing_ok=True)  # (a partial left by a crash isn't trusted: it can't be checked)
+    attempt = 0
     try:
-        with (opener or (lambda u: _open(u, 60)))(url) as r, open(tmp, "wb") as f:
-            total = int(r.headers.get("Content-Length") or 0)
-            done = 0
-            while chunk := r.read(1 << 16):
-                f.write(chunk)
-                if digest is not None:
-                    digest.update(chunk)
-                done += len(chunk)
-                progress(done, total)
+        while True:
+            have = tmp.stat().st_size if tmp.exists() else 0
+            try:
+                _transfer(url, tmp, have, progress, opener, cancelled, dest.parent)
+                break
+            except Cancelled:
+                raise
+            except Exception as e:  # noqa: BLE001
+                if not _retryable(e) or attempt >= len(waits):
+                    if isinstance(e, Incomplete):
+                        raise UpdateError("The download stopped before it finished. Check the connection and try "
+                                          "again.") from None
+                    raise
+                if opener is not None:
+                    tmp.unlink(missing_ok=True)  # (a custom opener can't resume)
+                end = time.monotonic() + waits[attempt]
+                attempt += 1
+                while time.monotonic() < end:  # wait, but stay cancellable
+                    if cancelled():
+                        raise Cancelled() from None
+                    time.sleep(0.2)
         if check is not None:
             with open(tmp, "rb") as f:
                 check(f.read(16))
+        if digest is not None:
+            with open(tmp, "rb") as f:
+                while chunk := f.read(1 << 20):
+                    digest.update(chunk)
         os.replace(tmp, dest)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
     return dest
+
+
+def _transfer(url: str, tmp: Path, have: int, progress, opener, cancelled, folder: Path) -> None:
+    """One try: append what's missing to `tmp`. Raises Incomplete if the server stops early."""
+    if opener is not None:
+        r = opener(url)
+        have = 0
+    else:
+        r = _open(url, 60, {"Range": f"bytes={have}-"} if have else None)
+    with r:
+        status = getattr(r, "status", 200)
+        length = int(r.headers.get("Content-Length") or 0)
+        if have and status == 206:
+            m = re.match(r"bytes (\d+)-\d*/(\d+|\*)", r.headers.get("Content-Range") or "")
+            if not m or int(m.group(1)) != have:
+                raise Incomplete("the server resumed from somewhere else")
+            total = int(m.group(2)) if m.group(2).isdigit() else have + length
+        else:
+            have = 0  # (the whole file again: the server ignored the range, or this is the first try)
+            total = length
+        if total:
+            from . import core
+
+            need = total - have
+            if core.free_space(folder) < need + (64 << 20):
+                raise core.InstallError(f"There isn't enough free space for this download "
+                                        f"({core.human_size(need)} needed, {core.human_size(core.free_space(folder))} "
+                                        "free). Free some up and try again.")
+        done = have
+        with open(tmp, "ab" if have else "wb") as f:
+            while chunk := r.read(1 << 16):
+                if cancelled():
+                    raise Cancelled()
+                f.write(chunk)
+                done += len(chunk)
+                progress(done, total)
+    if total and done != total:
+        raise Incomplete(f"got {done} of {total} bytes")
 
 
 def install(downloaded: Path, target: Path) -> None:

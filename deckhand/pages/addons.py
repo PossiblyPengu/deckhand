@@ -84,6 +84,8 @@ class AddonsPage(Page):
             return
         if a.id == "arcadia":
             self._arcadia(a)
+        elif a.id == "nexus":
+            self._nexus(a)
         elif a.id == "decky":
             self._decky(a)
         elif a.id == "emudeck":
@@ -205,9 +207,11 @@ class AddonsPage(Page):
         def run(status):
             report = getattr(status, "progress", lambda pct: None)
 
+            xfer = core.Transfer(f"Downloading {release.version}…")
+
             def progress(done: int, total: int) -> None:
                 if total:
-                    status(f"Downloading {release.version}…  {core.human_size(done)} of {core.human_size(total)}")
+                    status(xfer.text(done, total))
                     report(done * 100 // total)
             report(-1)
             path = proton.install(release, progress=progress, status=lambda s: (status(s), report(-1)))
@@ -257,9 +261,11 @@ class AddonsPage(Page):
         def run(status):
             report = getattr(status, "progress", lambda pct: None)
 
+            xfer = core.Transfer("Downloading Arcadia…")
+
             def progress(done: int, total: int) -> None:
                 if total:
-                    status(f"Downloading Arcadia…  {core.human_size(done)} of {core.human_size(total)}")
+                    status(xfer.text(done, total))
                     report(done * 100 // total)
             report(-1)
             version = addons.download_arcadia(progress)
@@ -314,6 +320,101 @@ class AddonsPage(Page):
         except (OSError, core.InstallError) as e:
             Sheet.ask(self, "Arcadia", str(e), ("Close",))
 
+    # ── Nexus Launcher (Xbox PC games, built on Xodus) ───────────────
+
+    def _nexus(self, a: addons.Addon) -> None:
+        if addons.nexus_app() is None:
+            if Sheet.ask(self, "Xbox PC games", "Nexus Launcher plays your Xbox and Game Pass PC games on the Deck. It "
+                         "is built on Xodus, an open-source project, and is unofficial: not made or supported by "
+                         "Microsoft, and still experimental, so some games run badly or not at all. You need a "
+                         "Microsoft account and a licence for each game.\n\nDeckhand downloads the newest Nexus "
+                         "Launcher from its GitHub releases, checks it, and adds it to Steam. Then open it, install "
+                         "the Nexus Runtime in its Settings, and sign in (a mouse or the touchscreen helps for "
+                         "that; the browser option needs Google Chrome).", ("Download Nexus Launcher", "Cancel")) == 0:
+                self._download_nexus(a)
+            return
+        app = self.apps.get(a.id)
+        in_steam = app is not None and self.steam.get(a.id) in ("in", "sent")
+        yours = not in_steam and bool(addons.nexus_shortcut_of_yours())
+        actions = [("Open Nexus Launcher", lambda: self._open_nexus()),
+                   ("Get the newest version", lambda: self._download_nexus(a))]
+        if in_steam:
+            actions.append(("Remove from Steam", lambda: self.win.uninstall(app)))
+        elif not yours:
+            actions.append(("Add to Steam", lambda: self._set_up_nexus(a)))
+        actions += [("Uninstall", lambda: self._uninstall_nexus(a, yours)), ("Close", None)]
+        where = ("It's in your Steam library." if in_steam else
+                 "It's in your Steam library already, so Deckhand leaves that shortcut alone." if yours
+                 else "It's not in your Steam library yet.")
+        choice = Sheet.ask(self, "Nexus Launcher", f"Nexus Launcher is installed. {where}",
+                           tuple(t for t, _f in actions), primary=len(actions) - 1, danger=(len(actions) - 2,))
+        if 0 <= choice < len(actions) and actions[choice][1] is not None:
+            actions[choice][1]()
+
+    def _download_nexus(self, a: addons.Addon) -> None:
+        self.status.setText("Downloading Nexus Launcher…")
+
+        def run(status):
+            report = getattr(status, "progress", lambda pct: None)
+
+            xfer = core.Transfer("Downloading Nexus Launcher…")
+
+            def progress(done: int, total: int) -> None:
+                if total:
+                    status(xfer.text(done, total))
+                    report(done * 100 // total)
+            report(-1)
+            version = addons.download_nexus(progress)
+            status("Adding Nexus Launcher to Steam…")
+            report(-1)
+            return version, addons.set_up_nexus(self.win.paths)
+
+        def finished(result) -> None:
+            version, app = result
+            self.status.setText("")
+            self.show_progress(None)
+            self.win.paths.remember(nexus_version=version)
+            self.win._write_art(app, artwork.load_icon(app.icon))
+            self.win._say_added(app, "Add-ons → Xbox PC games")
+            self.refresh()
+
+        self.win.run_worker(run, finished, self._failed("Nexus Launcher"), status=self.status.setText, kind="addon",
+                            progress=self.show_progress)
+
+    def _set_up_nexus(self, a: addons.Addon) -> None:
+        def finished(app: core.App) -> None:
+            self.win._write_art(app, artwork.load_icon(app.icon))
+            self.win._say_added(app, "Add-ons → Xbox PC games")
+            self.refresh()
+
+        self.win.run_worker(lambda _s: addons.set_up_nexus(self.win.paths), finished,
+                            self._failed("Nexus Launcher"), kind="addon")
+
+    def _uninstall_nexus(self, a: addons.Addon, yours: bool = False) -> None:
+        shortcut = ("" if yours else " and its Steam shortcut")
+        if Sheet.ask(self, "Uninstall Nexus Launcher?", f"Removes Nexus Launcher{shortcut} from Deckhand. Your games, "
+                     "saves, runtime and sign-in stay, in case you install it again. (A copy made by Nexus's own "
+                     "installer is removed with its uninstall script.)", ("Uninstall", "Keep"),
+                     primary=1, danger=(0,)) != 0:
+            return
+
+        def finished(left_in_steam: bool) -> None:
+            self.win.flash("Nexus Launcher uninstalled")
+            self.refresh()
+            if left_in_steam:
+                Sheet.ask(self, "Nexus Launcher uninstalled", "Its shortcut is still in your Steam library: Deckhand "
+                          "doesn't change Steam's list while Steam is open.\n\n" + REMOVE_IN_STEAM, ("Close",))
+
+        self.win.run_worker(lambda _s: addons.uninstall_nexus(self.apps.get(a.id), self.win.paths), finished,
+                            self._failed("Nexus Launcher"), kind="addon")
+
+    def _open_nexus(self) -> None:
+        try:
+            addons.open_nexus()
+            self.win.flash("Nexus Launcher is opening…")
+        except (OSError, core.InstallError) as e:
+            Sheet.ask(self, "Nexus Launcher", str(e), ("Close",))
+
     def _decky(self, a: addons.Addon) -> None:
         installed = addons.decky_version() is not None
         if core.in_game_mode():
@@ -367,9 +468,11 @@ class AddonsPage(Page):
         def run(status):
             report = getattr(status, "progress", lambda pct: None)
 
+            xfer = core.Transfer("Downloading EmuDeck…")
+
             def progress(done: int, total: int) -> None:
                 if total:
-                    status(f"Downloading EmuDeck…  {core.human_size(done)} of {core.human_size(total)}")
+                    status(xfer.text(done, total))
                     report(done * 100 // total)
             report(-1)
             return addons.download_emudeck(progress)

@@ -95,9 +95,11 @@ def apply(fix: Fix, app: core.App, paths: core.Paths, status: Callable[[str], No
 
         log(f"Deckhand {time.strftime('%Y-%m-%d %H:%M')}: installing {fix.name} for {app.name}")
         for url, name, args in fix.files:
+            xfer = core.Transfer(f"Downloading {fix.name}…")
+
             def progress(done: int, total: int) -> None:
                 if total:
-                    status(f"Downloading {fix.name}…  {core.human_size(done)} of {core.human_size(total)}")
+                    status(xfer.text(done, total))
                     report(done * 100 // total)
 
             def check(head: bytes) -> None:
