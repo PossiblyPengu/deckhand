@@ -694,37 +694,249 @@ class TestWindow(Env):
         self.win.confirm_install(self.add_installer("Cool Game Setup.exe", 10))
         self.assertIn("already has “Cool Game”", texts[-1])
 
-    def test_addons_page_shows_status_and_downloads_emudeck(self):
+    def test_addons_page_lists_the_add_ons_with_their_status(self):
         from deckhand import addons
-        from tests.test_addons import FakeResponse
         self.win.go_home()
         self.win.switch_section("addons")
         page = self.win.addons
         self.assertIs(self.win.stack.currentWidget(), page)
         self.assertTrue(self.win.stations["addons"].isChecked())
         ids = [a.id for a in addons.ADDONS]
-        decky, emudeck = page.list.item(ids.index("decky")), page.list.item(ids.index("emudeck"))
+        self.assertNotIn("emudeck", ids)  # (Arcadia replaces it)
         self.assertIn("Arcadia", page.list.item(0).text())  # the sister app comes first
-        self.assertIn("Decky Loader", decky.text())
-        self.assertIn("Not installed", emudeck.text())
-        # Game Mode: Decky's installer needs Desktop Mode.
+        self.assertIn("Decky Loader", page.list.item(ids.index("decky")).text())
+        self.assertIn("Not installed", page.list.item(ids.index("decky")).text())
+
+    # ── installing everything from Game Mode ─────────────────────────
+
+    def _decky_fakes(self, password_unset=False, accepts="right", installed=False, removes=False):
+        """Decky's installer and the checks around it replaced; returns the list of run_decky() calls."""
+        from unittest import mock
+        from deckhand import addons
+        from deckhand.widgets import Sheet
+        os.environ["XDG_CURRENT_DESKTOP"] = "gamescope"  # Game Mode
+        loader = self.home / "homebrew/services/PluginLoader"
+        if installed:
+            loader.parent.mkdir(parents=True)
+            loader.write_text("")
+        calls, typed = [], []
+
+        def fake_run(script, option, password, temporary, on_event=None, log=None):
+            calls.append((option, password, temporary))
+            if removes:
+                loader.unlink()
+            else:
+                loader.parent.mkdir(parents=True, exist_ok=True)
+                loader.write_text("")
+            return 0, []
+
+        for target, value in ((addons, {"admin_password_unset": lambda user="deck": password_unset,
+                                        "sudo_accepts": lambda pw: pw == accepts,
+                                        "fetch_decky_installer": lambda d, fetch=None: Path("decky.sh"),
+                                        "run_decky": fake_run}),):
+            for name, fn in value.items():
+                patcher = mock.patch.object(target, name, fn)
+                patcher.start()
+                self.addCleanup(patcher.stop)
+        orig = Sheet.ask_text
+        self.passwords = []
+        Sheet.ask_text = staticmethod(lambda parent, title, *a, **k: (
+            self.asked.append(title), (0, self.passwords.pop(0)) if self.passwords else (1, ""))[1])
+        self.addCleanup(lambda: setattr(Sheet, "ask_text", orig))
+        return calls
+
+    def _decky_text(self, page):
+        from deckhand import addons
+        return page.list.item([a.id for a in addons.ADDONS].index("decky")).text()  # (the rows are rebuilt on refresh)
+
+    def _let_it_finish(self):
+        self.wait_for(lambda: not self.win.workers)  # (a window must not go away under a running install)
+
+    def _decky_row(self):
+        from deckhand import addons
+        self.win.go_home()
+        self.win.switch_section("addons")
+        page = self.win.addons
+        return page, page.list.item([a.id for a in addons.ADDONS].index("decky"))
+
+    def test_decky_installs_from_game_mode_with_the_admin_password(self):
+        calls = self._decky_fakes()
+        page, row = self._decky_row()
+        self.passwords = ["wrong", "right"]  # the first is refused, the second taken
+        self.answers = [0]  # Install
+        page._activate(row)
+        self.wait_for(lambda: calls)
+        self.assertEqual(calls, [("release", "right", False)])
+        self.assertEqual(self.asked.count("Admin password"), 2)
+        self.assertNotIn("Switch to Desktop Mode", self.asked)
+        self.wait_for(lambda: "Decky Loader is ready" in self.asked)
+        self._let_it_finish()
+        self.assertIn("Installed", self._decky_text(page))
+
+    def test_with_no_admin_password_the_temporary_one_is_offered(self):
+        calls = self._decky_fakes(password_unset=True)
+        page, row = self._decky_row()
+        self.answers = [0, 0]  # Install; Continue (use the temporary password)
+        page._activate(row)
+        self.wait_for(lambda: calls)
+        self.assertEqual(calls, [("release", "Decky!", True)])
+        self.assertIn("No admin password yet", self.asked)
+        self.assertNotIn("Admin password", self.asked)  # (nothing to type)
+        self._let_it_finish()
+
+    def test_declining_the_temporary_password_stops_before_anything_runs(self):
+        calls = self._decky_fakes(password_unset=True)
+        page, row = self._decky_row()
+        self.answers = [0, 1]  # Install; Cancel
+        page._activate(row)
+        self.pump(10)
+        self.assertEqual(calls, [])
+
+    def test_cancelling_the_password_runs_nothing(self):
+        calls = self._decky_fakes()
+        page, row = self._decky_row()
+        self.passwords = []  # (the stand-in answers "Cancel" when it is asked)
+        self.answers = [0]
+        page._activate(row)
+        self.pump(10)
+        self.assertEqual(calls, [])
+
+    def test_three_wrong_passwords_give_up(self):
+        calls = self._decky_fakes()
+        page, row = self._decky_row()
+        self.passwords = ["a", "b", "c"]
+        self.answers = [0]
+        page._activate(row)
+        self.pump(10)
+        self.assertEqual(calls, [])
+        self.assertEqual(self.asked.count("Admin password"), 4)  # three tries, then the closing message
+
+    def test_the_prerelease_can_be_chosen(self):
+        calls = self._decky_fakes(password_unset=True)
+        page, row = self._decky_row()
+        self.answers = [1, 0]  # Install the prerelease; Continue
+        page._activate(row)
+        self.wait_for(lambda: calls)
+        self.assertEqual(calls[0][0], "prerelease")
+        self._let_it_finish()
+
+    def test_decky_can_be_updated_and_uninstalled_from_game_mode(self):
+        calls = self._decky_fakes(password_unset=True, installed=True, removes=True)
+        page, row = self._decky_row()
+        self.assertIn("Installed", row.text())
+        self.answers = [2, 0]  # Uninstall; Continue
+        page._activate(row)
+        self.wait_for(lambda: calls)
+        self.assertEqual(calls[0][0], "uninstall decky loader")
+        self._let_it_finish()
+        self.assertIn("Not installed", self._decky_text(page))
+
+    def test_wiping_decky_asks_again_first(self):
+        calls = self._decky_fakes(password_unset=True, installed=True)
+        page, row = self._decky_row()
+        self.answers = [3, 1]  # Wipe it; Keep it
+        page._activate(row)
+        self.pump(10)
+        self.assertEqual(calls, [])
+        self.assertIn("Wipe Decky Loader?", self.asked)
+
+    def test_a_desktop_tool_installed_in_game_mode_is_added_to_steam(self):
+        from deckhand import addons
+        self._fake_flatpak()
         os.environ["XDG_CURRENT_DESKTOP"] = "gamescope"
-        self.answers = [1]
-        page._activate(decky)
-        self.assertEqual(self.asked[-1], "Decky Loader")
-        # EmuDeck: download (network faked), then it's offered to open — in Desktop Mode only.
-        orig_release, orig_open = addons.emudeck_release, addons.updater._open
-        addons.emudeck_release = lambda fetch=None: ("2.4.7", "https://example.invalid/EmuDeck.AppImage")
-        addons.updater._open = lambda url, timeout, headers=None: FakeResponse(b"\x7fELF" + b"\0" * 100)
-        try:
-            self.answers = [0, 1]  # Download EmuDeck; (Game Mode) not now
-            page._activate(page.list.item(ids.index("emudeck")))
-            self.wait_for(lambda: (self.home / "Applications/EmuDeck.AppImage").exists())
-            self.wait_for(lambda: not self.win.busy_with_quietly("addon"))  # (then it offers to open it)
-            self.assertEqual(self.asked[-1], "EmuDeck")
-            self.wait_for(lambda: "Downloaded" in page.list.item(ids.index("emudeck")).text())
-        finally:
-            addons.emudeck_release, addons.updater._open = orig_release, orig_open
+        self.win.go_home()
+        self.win.switch_section("addons")
+        page = self.win.addons
+        page.installed = set()  # (what the background check found: nothing)
+        ids = [a.id for a in addons.ADDONS]
+        self.answers = [0]  # Install
+        page._activate(page.list.item(ids.index("protonup-qt")))
+        self.wait_for(lambda: any(a.id == "addon-protonup-qt" for a in core.Library(self.paths).load()))
+        self.assertTrue(core.steam_shortcuts([self.steam]))  # openable from Game Mode
+
+    def test_a_desktop_tool_installed_on_the_desktop_stays_in_the_app_menu(self):
+        from deckhand import addons
+        self._fake_flatpak()
+        for key in ("SteamGamepadUI", "XDG_CURRENT_DESKTOP", "GAMESCOPE_WAYLAND_DISPLAY"):
+            os.environ.pop(key, None)
+        self.win.go_home()
+        self.win.switch_section("addons")
+        page = self.win.addons
+        page.installed = set()
+        self.answers = [0]
+        page._activate(page.list.item([a.id for a in addons.ADDONS].index("protonup-qt")))
+        self.wait_for(lambda: "net.davidotek.pupgui2" in (self.tmp / "fp.db").read_text())
+        self.wait_for(lambda: not self.win.workers)
+        self.assertEqual(core.steam_shortcuts([self.steam]), [])
+
+    # ── Deckhand puts itself in Steam, once ──────────────────────────
+
+    def _auto_add_fakes(self, exe=True, result=(123456, "live"), already=0):
+        from unittest import mock
+        from deckhand import app as app_mod
+        fake_exe = self.tmp / "deckhand-bin"
+        fake_exe.write_text("")
+        calls = []
+        for target, name, value in ((app_mod.start, "self_exe", lambda: fake_exe if exe else None),
+                                    (core, "add_shortcut", lambda *a, **k: (calls.append(a), result)[1]),
+                                    (core, "find_shortcut", lambda *a, **k: already)):
+            patcher = mock.patch.object(target, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        return calls
+
+    def test_deckhand_adds_itself_to_steam_the_first_time_and_only_then(self):
+        calls = self._auto_add_fakes()
+        self.win.auto_add_self_to_steam()
+        self.wait_for(lambda: self.paths.state().get("self_auto_added"))
+        self._let_it_finish()
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], "Deckhand")
+        self.win.auto_add_self_to_steam()  # (the next start: it was added once; if removed since, it stays removed)
+        self._let_it_finish()
+        self.assertEqual(len(calls), 1)
+
+    def test_it_does_nothing_when_deckhand_is_already_in_steam(self):
+        calls = self._auto_add_fakes(already=777)
+        self.win.auto_add_self_to_steam()
+        self.pump(10)
+        self.assertEqual(calls, [])
+        self.assertTrue(self.paths.state().get("self_auto_added"))  # (so it never tries later either)
+
+    def test_it_does_nothing_when_run_from_source(self):
+        calls = self._auto_add_fakes(exe=False)
+        self.win.auto_add_self_to_steam()
+        self.pump(10)
+        self.assertEqual(calls, [])
+        self.assertFalse(self.paths.state().get("self_auto_added"))
+
+    def test_if_steam_does_not_answer_it_tries_again_next_time(self):
+        calls = self._auto_add_fakes(result=(0, "unavailable"))
+        self.win.auto_add_self_to_steam()
+        self.wait_for(lambda: calls)
+        self._let_it_finish()
+        self.assertFalse(self.paths.state().get("self_auto_added"))
+        calls.clear()
+        self.win.auto_add_self_to_steam()
+        self.wait_for(lambda: calls)  # asked again
+        self._let_it_finish()
+
+    def test_a_hand_off_to_a_running_steam_is_remembered_so_it_is_not_sent_twice(self):
+        calls = self._auto_add_fakes(result=(123456, "requested"))
+        self.win.auto_add_self_to_steam()
+        self.wait_for(lambda: self.paths.state().get("self_auto_added"))
+        self._let_it_finish()
+        self.assertTrue(self.paths.state().get("self_steam_requested_at"))
+        self.win.auto_add_self_to_steam()
+        self._let_it_finish()
+        self.assertEqual(len(calls), 1)
+
+    def test_it_can_be_switched_off(self):
+        calls = self._auto_add_fakes()
+        os.environ["DECKHAND_NO_AUTO_STEAM"] = "1"
+        self.win.auto_add_self_to_steam()
+        self.pump(10)
+        self.assertEqual(calls, [])
 
     def test_stores_page_installs_a_windows_store_under_its_own_name(self):
         from deckhand import stores

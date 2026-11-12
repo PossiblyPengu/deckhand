@@ -266,7 +266,7 @@ class Sheet(QWidget):
 
     def __init__(self, parent: QWidget, title: str, text: str = "", buttons: tuple[str, ...] = ("OK",),
                  primary: int = 0, danger: tuple[int, ...] = (), detail: str = "", field: str | None = None,
-                 value: str = ""):
+                 value: str = "", secret: bool = False):
         top = parent.window()
         super().__init__(top)
         self.top = top
@@ -299,6 +299,8 @@ class Sheet(QWidget):
         if field is not None:  # a line of text to type: `field` is its placeholder
             self.field = QLineEdit(value)
             self.field.setPlaceholderText(field)
+            if secret:  # a password: show dots, never the letters
+                self.field.setEchoMode(QLineEdit.EchoMode.Password)
             self.field.returnPressed.connect(lambda: self._pick(primary))
             lay.addWidget(self.field)
         if detail:

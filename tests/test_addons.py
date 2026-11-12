@@ -1,4 +1,4 @@
-"""Add-ons: Decky Loader and EmuDeck from their official sources (network faked)."""
+"""Add-ons: Decky Loader, Arcadia, Nexus and the rest from their official sources (network faked)."""
 import io
 import json
 import os
@@ -15,10 +15,6 @@ from tests.test_streaming import FlatpakEnv  # noqa: E402
 DECKY_SCRIPT = b"#!/bin/bash\n# Decky Installer (fake)\nmkdir -p \"$HOME/homebrew/services\"\n" \
                b"touch \"$HOME/homebrew/services/PluginLoader\"\necho v3.1.10 > \"$HOME/homebrew/services/.loader.version\"\n" \
                b"echo installed\n"
-RELEASE = {"tag_name": "v2.4.7", "assets": [{"name": "EmuDeck-2.4.7.AppImage",
-                                             "browser_download_url": "https://example.invalid/EmuDeck.AppImage"},
-                                            {"name": "latest-linux.yml", "browser_download_url": "x"}]}
-
 
 class FakeResponse(io.BytesIO):
     def __init__(self, data: bytes):
@@ -28,19 +24,14 @@ class FakeResponse(io.BytesIO):
 
 class TestAddons(Env):
     def test_status_reads_what_is_installed(self):
-        decky, emu = addons.addon("decky"), addons.addon("emudeck")
-        self.assertEqual((addons.status(decky), addons.status(emu)), ("Not installed", "Not installed"))
+        decky = addons.addon("decky")
+        self.assertEqual(addons.status(decky), "Not installed")
         services = self.home / "homebrew/services"
         services.mkdir(parents=True)
         (services / "PluginLoader").write_text("")
         self.assertEqual(addons.status(decky), "Installed")
         (services / ".loader.version").write_text("v3.1.10\n")
         self.assertEqual(addons.status(decky), "Installed (v3.1.10)")
-        (self.home / "Applications").mkdir()
-        (self.home / "Applications/EmuDeck.AppImage").write_text("")
-        self.assertEqual(addons.status(emu), "Downloaded — not set up yet")
-        (self.home / "emudeck").mkdir()
-        self.assertEqual(addons.status(emu), "Installed")
 
     def test_decky_uses_its_own_installer(self):
         urls = []
@@ -54,28 +45,6 @@ class TestAddons(Env):
     def test_a_bad_decky_download_is_refused(self):
         with self.assertRaises(core.InstallError):
             addons.fetch_decky_installer(self.tmp / "dl", lambda url: b"<html>rate limited</html>")
-
-    def test_emudeck_downloads_the_latest_appimage_into_applications(self):
-        body = b"\x7fELF" + b"\0" * 5000
-        seen = []
-        version = addons.download_emudeck(lambda d, t: seen.append((d, t)),
-                                          fetch=lambda url: json.dumps(RELEASE).encode(),
-                                          opener=lambda url: FakeResponse(body))
-        self.assertEqual(version, "2.4.7")
-        app = self.home / "Applications/EmuDeck.AppImage"
-        self.assertEqual(app.read_bytes(), body)
-        self.assertTrue(os.access(app, os.X_OK))
-        self.assertEqual(seen[-1], (len(body), len(body)))
-
-    def test_a_damaged_emudeck_download_leaves_nothing(self):
-        with self.assertRaises(core.InstallError):
-            addons.download_emudeck(fetch=lambda url: json.dumps(RELEASE).encode(),
-                                    opener=lambda url: FakeResponse(b"<html>nope</html>"))
-        self.assertEqual(list((self.home / "Applications").iterdir()), [])
-
-    def test_no_appimage_in_the_release_is_explained(self):
-        with self.assertRaises(core.InstallError):
-            addons.emudeck_release(lambda url: json.dumps({"tag_name": "v1", "assets": []}).encode())
 
 
 ARCADIA_BODY = b"\x7fELF" + b"\0" * 4000
@@ -289,3 +258,133 @@ class TestNexus(Env):
         app = addons.set_up_nexus(self.paths, roots=[self.steam])
         addons.uninstall_nexus(app, self.paths, roots=[self.steam])
         self.assertTrue(mine.exists())
+
+
+# Decky's installer, reduced to the shape that matters here: the same zen_nospam() helper, and one call of each kind.
+UPSTREAM_SHAPED = '''#!/bin/bash
+zen_nospam() {
+  zenity 2> >(grep -v 'Gtk' >&2) "$@"
+}
+if ( zen_nospam --title="Decky Installer" --width=300 --height=200 --question --text="no password set. ok?" ); then
+  echo "temporary-password-accepted"
+fi
+PASS=$(zen_nospam --title="Decky Installer" --width=300 --height=100 --entry --hide-text --text="Enter your sudo/admin password")
+[ "$PASS" = "hunter2" ] && echo "password-ok"
+OPTION=$(zen_nospam --title="Decky Installer" --width=750 --height=300 --list --radiolist --text "Select branch to install:" --hide-header --column "Buttons" --column "Choice" --column "Info" \\
+  TRUE "release" "Recommended for stable steamos" \\
+  FALSE "prerelease" "Recommended for beta/preview steamos")
+echo "option=$OPTION"
+(
+echo "15" ; echo "# Creating file structure" ;
+echo "60"; echo "# Installing version v3.0.1" ;
+echo "100" ; echo "# Install finished, installer can now be closed";
+) |
+zen_nospam --progress --title="Decky Installer" --width=300 --height=100 --text="Installing..." --percentage=0 --no-cancel
+zen_nospam --title="Decky Installer" --width=300 --height=100 --error --text "No Decky Loader release was found."
+exit 7
+'''
+
+
+class TestDeckyInGameMode(Env):
+    """Decky's own installer, its questions answered by Deckhand (so no zenity window, and Game Mode works)."""
+
+    def setUp(self):
+        super().setUp()
+        self.script = self.tmp / "decky.sh"
+        self.script.write_text(UPSTREAM_SHAPED)
+        self.workdir = self.tmp / "t"
+        self.workdir.mkdir()
+        from unittest import mock
+        self.tempdir = mock.patch.object(__import__("tempfile"), "tempdir", str(self.workdir))
+        self.tempdir.start()
+        self.addCleanup(self.tempdir.stop)
+
+    def run_it(self, option="release", password="hunter2", temporary=False):
+        events, lines = [], []
+        rc, messages = addons.run_decky(self.script, option, password, temporary,
+                                        lambda k, v: events.append((k, v)), lines.append)
+        return rc, messages, events, lines
+
+    def test_every_prompt_is_answered_and_progress_is_reported(self):
+        rc, messages, events, lines = self.run_it(option="prerelease", temporary=True)
+        self.assertEqual(rc, 7)  # (the script's own exit code is passed on)
+        self.assertEqual(messages, ["No Decky Loader release was found."])
+        self.assertIn("temporary-password-accepted", lines)
+        self.assertIn("password-ok", lines)
+        self.assertIn("option=prerelease", lines)
+        self.assertEqual([v for k, v in events if k == "progress"], ["15", "60", "100"])
+        self.assertEqual([v for k, v in events if k == "text"][0], "Creating file structure")
+
+    def test_the_default_choice_is_used_when_the_wanted_one_is_not_offered(self):
+        _rc, _m, _e, lines = self.run_it(option="update to latest release")
+        self.assertIn("option=release", lines)  # (the list's first TRUE row)
+
+    def test_no_to_the_temporary_password_question_is_passed_on(self):
+        _rc, _m, _e, lines = self.run_it(temporary=False)
+        self.assertNotIn("temporary-password-accepted", lines)
+
+    def test_the_password_never_reaches_the_log_and_is_wiped(self):
+        _rc, messages, events, lines = self.run_it(password="hunter2")
+        everything = "\n".join(lines + messages + [f"{k} {v}" for k, v in events])
+        self.assertNotIn("hunter2", everything)
+        self.assertEqual(list(self.workdir.iterdir()), [])  # the folder with the answers is gone
+
+    def test_no_zenity_is_needed(self):
+        import os
+        os.environ["PATH"] = "/usr/bin:/bin"  # (nothing called zenity is there)
+        self.assertEqual(self.run_it()[0], 7)
+
+    def test_a_changed_installer_is_refused_and_nothing_is_left_behind(self):
+        self.script.write_text("#!/bin/bash\n# Decky\nzenity --info --text hi\n")
+        with self.assertRaises(core.InstallError) as ctx:
+            self.run_it()
+        self.assertEqual(str(ctx.exception), "DECKY_CHANGED")
+        self.assertEqual(list(self.workdir.iterdir()), [])
+
+    def test_patching_swaps_only_the_zenity_helper(self):
+        patched = addons.patch_decky_installer(UPSTREAM_SHAPED, Path("/w/zenity"), Path("/w/answers.json"))
+        self.assertIn("/w/zenity /w/answers.json \"$@\"", patched)
+        self.assertNotIn("zenity 2>", patched)
+        self.assertEqual(patched.count("zen_nospam --"), UPSTREAM_SHAPED.count("zen_nospam --"))  # all calls kept
+
+    def test_paths_with_awkward_characters_are_quoted(self):
+        patched = addons.patch_decky_installer(UPSTREAM_SHAPED, Path("/w x/zen'ity"), Path("/w x/a.json"))
+        import subprocess
+        self.assertEqual(subprocess.run(["bash", "-n", "-c", patched]).returncode, 0)
+
+    def test_the_real_upstream_installer_still_patches(self):
+        # Set DECKY_INSTALLER_COPY to a downloaded copy of Decky's current installer to check it still patches.
+        import os
+        real = Path(os.environ.get("DECKY_INSTALLER_COPY", "/nonexistent"))
+        if not real.is_file():
+            self.skipTest("DECKY_INSTALLER_COPY isn't set")
+        patched = addons.patch_decky_installer(real.read_text(), Path("/w/zenity"), Path("/w/a.json"))
+        import subprocess
+        self.assertEqual(subprocess.run(["bash", "-n", "-c", patched]).returncode, 0)
+        self.assertNotIn("zenity 2>", patched)
+
+    def test_admin_password_unset_reads_passwd_status(self):
+        import os
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        os.environ["PATH"] = f"{bindir}:{os.environ['PATH']}"
+        passwd = bindir / "passwd"
+        for out, expect in (("deck NP 2024-01-01 0 99999 7 -1", True), ("deck P 2024-01-01 0 99999 7 -1", False),
+                            ("deck L 2024-01-01 0 99999 7 -1", False), ("", False)):
+            passwd.write_text(f'#!/bin/bash\necho "{out}"\n')
+            passwd.chmod(0o755)
+            self.assertEqual(addons.admin_password_unset(), expect, out)
+        passwd.unlink()  # a system without passwd (or a non-Deck): not "unset"
+        os.environ["PATH"] = str(bindir)
+        self.assertFalse(addons.admin_password_unset())
+
+    def test_sudo_accepts_only_the_right_password(self):
+        import os
+        bindir = self.tmp / "bin2"
+        bindir.mkdir()
+        sudo = bindir / "sudo"
+        sudo.write_text('#!/bin/bash\nread -r pw\n[ "$pw" = "right" ]\n')
+        sudo.chmod(0o755)
+        os.environ["PATH"] = f"{bindir}:{os.environ['PATH']}"
+        self.assertTrue(addons.sudo_accepts("right"))
+        self.assertFalse(addons.sudo_accepts("wrong"))

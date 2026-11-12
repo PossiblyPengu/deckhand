@@ -36,7 +36,7 @@ pill on its card.
 - **Handles programs that need no install:** if the file *is* the program, it's added as-is — with its folder, if you want (portable programs usually need the files next to them).
 - **Picks up interrupted installs:** if an install never finished (Deckhand was closed mid-install, the Deck turned off…), it shows up under Installed programs as an unfinished install: **Finish setup** adds what it installed to Steam without reinstalling, or delete it to free the space. Deckhand also offers this when it opens, and never touches a folder whose installer is still running.
 - **Records DirectX setup errors:** if the installer runs Microsoft's DirectX setup, its own error log is copied into Deckhand's install log. (That setup often reports errors under Proton; Proton already includes DirectX, so programs usually run anyway.)
-- **Shows real progress:** how much the installer has written so far and how fast, with an estimate against the installer's size for big installs, and a heads-up when nothing is happening because the installer is waiting for you. Flathub and EmuDeck downloads show a percentage.
+- **Shows real progress:** how much the installer has written so far and how fast, with an estimate against the installer's size for big installs, and a heads-up when nothing is happening because the installer is waiting for you. Flathub downloads show a percentage.
 - **Downloads carefully:** every download (store installers, Proton, Visual C++/.NET fixes, add-ons) shows its speed and time left, carries on where it stopped if the connection drops (it retries a few times), never keeps a file that is shorter than the server said, and checks there is room on the disk before it starts.
 - **Keeps the Deck awake while installing** (when the system allows it), so a long install isn't paused by sleep.
 
@@ -97,13 +97,12 @@ already installed:
 | :--- | :--- |
 | **Arcadia** (github.com/PossiblyPengu/arcadia) | Deckhand's sister app, for retro games: consoles and games on a controller-first launcher, with its own Setup screen that sorts ROMs, installs emulators, checks BIOS files and syncs saves. Downloads the Steam Deck AppImage from Arcadia's latest GitHub release into `~/Applications`, checks it against GitHub's checksum, and adds it to Steam (with artwork) and the app menu. An Arcadia already in Steam gets no second shortcut. Picking it again opens, updates or uninstalls it; uninstalling keeps your games and Arcadia's settings in `~/Arcadia`. |
 | **Nexus Launcher** (Xbox PC games, built on [Xodus](https://github.com/xodus-gaming/xodus)) | Plays your Xbox and Game Pass PC games on the Deck. **Unofficial and experimental:** it isn't made or supported by Microsoft, some games run badly or not at all, and you need a Microsoft account and a licence for each game. Downloads the newest AppImage from [its GitHub releases](https://github.com/domsvoboda/nexus-launcher/releases) into `~/Applications`, checks it against the release's SHA-512 file, and adds it to Steam (with artwork) and the app menu. A copy installed by Nexus's own installer is found and updated where it is, and a shortcut Nexus or you already made gets no second one. Afterwards open it, install the **Nexus Runtime** in its Settings and sign in (a mouse or the touchscreen helps; its browser sign-in option needs Google Chrome). |
-| **Decky Loader** (decky.xyz) | Downloads Decky's own installer from github.com/SteamDeckHomebrew and opens it. It asks for your admin password (or offers a temporary one) and lets you install, update or uninstall. |
-| **EmuDeck** (emudeck.com) | Downloads the latest EmuDeck from its GitHub releases into `~/Applications`, the way EmuDeck's own installer does, and opens it. |
+| **Decky Loader** (decky.xyz) | Runs Decky's own installer from github.com/SteamDeckHomebrew, with its questions asked on Deckhand's own screens, so it works in **Game Mode** as well as on the desktop. You type your admin password (or agree to the temporary one Decky's installer offers when none is set); you can install, install the prerelease, update, uninstall, or wipe it. The password is checked first, never logged, and wiped when the install ends. If Decky ever changes its installer in a way Deckhand doesn't recognise, nothing is run: on the desktop Decky's own windows open instead, in Game Mode Deckhand asks you to update. |
 | **GE-Proton** | Proton with extra fixes. Downloads the newest release from its GitHub releases, checks it against its checksum and puts it with Steam's compatibility tools. Deckhand uses it for new installs straight away; for a Steam game, restart Steam and pick it under ⚙ → Properties → Compatibility. Picking it again updates it. |
 | **RetroDECK**, **Lutris**, **Bottles**, **Discord** | From Flathub (kept up to date by Discover), and added to Steam so you can open them in Game Mode. |
-| **ProtonUp-Qt**, **Protontricks**, **Ludusavi**, **Flatseal** | Desktop Mode tools: from Flathub (kept up to date by Discover), then in the Desktop Mode app menu. |
+| **ProtonUp-Qt**, **Protontricks**, **Ludusavi**, **Flatseal** | Desktop tools: from Flathub (kept up to date by Discover). Installed in Game Mode they are added to Steam too, so you can open them there; installed on the desktop they go in the app menu. |
 
-Decky Loader and EmuDeck set themselves up in Desktop Mode; from Game Mode, Deckhand offers to switch. An app from
+An app from
 Flathub can be opened, added to or removed from Steam, or uninstalled by picking it again.
 
 **Already set up?** Deckhand recognises streaming services and game stores you added to Steam yourself (or with a guide or
@@ -123,7 +122,7 @@ curl -fsSL https://raw.githubusercontent.com/PossiblyPengu/deckhand/main/get.sh 
 No pip, pacman, or developer mode needed. The script downloads the prebuilt binary and checks its checksum.
 To get the whole suite in one go, add Arcadia (retro games) too: `curl -fsSL …/get.sh | bash -s -- --with-arcadia`.
 
-- To use Deckhand in Game Mode: **☰ Menu → Add Deckhand to Steam**.
+- **Deckhand puts itself in Steam the first time you open it**, so it is already there in Game Mode (while Steam is running it is handed to Steam, and may show up only after a Steam restart). It does this once: if you remove it later, it isn't added again. To add it by hand: **☰ Menu → Add Deckhand to Steam**. To turn the automatic step off, start it with `DECKHAND_NO_AUTO_STEAM=1`.
 - **Updates are built in:** when a new version is out, a banner on the home screen offers **Update now**; the download is checksum-verified and Deckhand restarts into it. You can also use **☰ Menu → Check for updates**, or `deckhand --update` in Konsole.
 - In Desktop Mode you can also right-click any setup `.exe` → **Open With → Deckhand**.
 - If a program shows "Sent to Steam" but isn't in your library, restart Steam (STEAM button → Power → Restart Steam).

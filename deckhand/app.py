@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, addons, artwork, cleanup, core, saves, steamgriddb, stores, streaming, theme, updater
+from . import __version__, addons, artwork, cleanup, core, saves, start, steamgriddb, stores, streaming, theme, updater
 from .nav import Nav
 from .pages import (AddonsPage, BrowserPage, DonePage, HomePage, InstallPage, InstalledPage,
                     PickPage, StartPage, StoresPage, StreamingPage, UpdatePage)
@@ -117,6 +117,7 @@ class MainWindow(QMainWindow):
             self.flash(f"Steam has {len(dupes)} duplicate shortcut{'s' * (len(dupes) != 1)} — "
                        "☰ Menu → Remove duplicate Steam shortcuts", ms=8000)
         QTimer.singleShot(0, self.check_leftovers)
+        QTimer.singleShot(3500, self.auto_add_self_to_steam)
         QTimer.singleShot(2000, self.refresh_better_xcloud)  # (after the window is up; at most every six hours)
         if check_updates is None:
             check_updates = updater.self_path() is not None and not os.environ.get("DECKHAND_NO_UPDATE_CHECK")
@@ -1252,6 +1253,38 @@ class MainWindow(QMainWindow):
         icon = artwork.install_app_icon() or ""
         self.run_worker(lambda _s: core.add_shortcut("Deckhand", str(exe), str(exe.parent), str(icon)), finished,
                         lambda m: Sheet.ask(self, "Couldn't add to Steam", m, ("Close",)), kind="steam")
+
+    def auto_add_self_to_steam(self) -> None:
+        """The first time Deckhand runs from its installed copy, put it in Steam by itself, so it is already there
+        when you switch to Game Mode. Once only: if you remove it afterwards, you are not given it back. If Steam
+        can't be reached it tries again next time."""
+        if os.environ.get("DECKHAND_NO_AUTO_STEAM") or self.paths.state().get("self_auto_added"):
+            return
+        exe = start.self_exe()
+        if exe is None or not core.steam_roots():  # (run from source, or no Steam here: nothing to do)
+            return
+        if core.find_shortcut(str(exe)):  # (it is there already, however it got there)
+            self.paths.remember(self_auto_added=True)
+            return
+        if self.thread is not None or self.busy_with_quietly("steam"):
+            return
+        started = time.time()
+
+        def finished(result) -> None:
+            appid, how = result
+            if how not in ("live", "file", "requested"):
+                return  # (Steam didn't answer, or there is no account yet: try again next time)
+            self.paths.remember(self_auto_added=True, **({"self_steam_requested_at": started}
+                                                         if how == "requested" else {}))
+            artwork.write_steam_artwork(appid, "Deckhand", artwork.logo_image(512), core.steam_grid_dirs())
+            self.flash({"live": "Deckhand is now in your Steam library, so you can open it in Game Mode.",
+                        "file": "Deckhand will be in your Steam library when Steam starts.",
+                        "requested": "Deckhand was sent to Steam. Look under Non-Steam in your library (restart Steam "
+                                     "if it isn't there)."}[how], 6000)
+
+        icon = artwork.install_app_icon() or ""
+        self.run_worker(lambda _s: core.add_shortcut("Deckhand", str(exe), str(exe.parent), str(icon)), finished,
+                        lambda _m: None, kind="steam")
 
     def open_files(self, files: list[str]) -> None:
         """Another launch (e.g. Open With in Desktop Mode) handed us an installer."""

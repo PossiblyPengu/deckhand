@@ -21,8 +21,8 @@ class AddonsPage(Page):
         lay.setSpacing(12)
         lay.addWidget(label("Add-ons", "h1"))
         lay.addWidget(label("Arcadia, Deckhand's sister app for retro games, and popular Deck add-ons and tools, from "
-                            "their official sources. Decky Loader and EmuDeck set "
-                            "themselves up in Desktop Mode; apps from Flathub are installed the way Discover does it, so Discover keeps them up to date.",
+                            "their official sources. Apps from Flathub are installed the way Discover does it, so Discover keeps them up "
+                            "to date.",
                             "dim"))
         self.list = QListWidget()
         self.list.setIconSize(QSize(44, 44))
@@ -68,16 +68,6 @@ class AddonsPage(Page):
         if self.win.stack.currentWidget() is self:
             self.refresh()
 
-    def _desktop_only(self, a: addons.Addon, what: str) -> None:
-        """In Game Mode: explain, and offer to switch to Desktop Mode."""
-        text = (f"{what} Switch to Desktop Mode, open Deckhand from the app menu (Games) and pick {a.name} "
-                "again.")
-        if addons.can_switch_to_desktop():
-            if Sheet.ask(self, a.name, text, ("Switch to Desktop Mode", "Not now"), primary=1) == 0:
-                addons.switch_to_desktop()
-        else:
-            Sheet.ask(self, a.name, text, ("Close",))
-
     def _activate(self, item: QListWidgetItem) -> None:
         a = addons.addon(item.data(Qt.ItemDataRole.UserRole))
         if a is None or self.win.busy_with("addon"):
@@ -88,8 +78,6 @@ class AddonsPage(Page):
             self._nexus(a)
         elif a.id == "decky":
             self._decky(a)
-        elif a.id == "emudeck":
-            self._emudeck(a)
         elif a.id == "ge-proton":
             self._ge_proton()
         else:
@@ -102,11 +90,12 @@ class AddonsPage(Page):
             self.win.flash("Still checking what's installed…")
             return
         if a.app not in self.installed:
-            then = ("Then it's in your Steam library too, so you can open it in Game Mode." if a.steam else
+            steam = a.steam or core.in_game_mode()  # (in Game Mode a Desktop tool is only usable from Steam)
+            then = ("Then it's in your Steam library too, so you can open it in Game Mode." if steam else
                     "Then it's in the Desktop Mode app menu.")
             if Sheet.ask(self, f"Install {a.name}?", f"Deckhand installs {a.name} from Flathub, the way Discover does "
                          f"it, so Discover keeps it up to date. {then}", ("Install", "Cancel")) == 0:
-                self._set_up(a, a.steam)
+                self._set_up(a, steam)
             return
         app = self.apps.get(a.id)
         in_steam = app is not None and self.steam.get(a.id) in ("in", "sent")
@@ -416,86 +405,106 @@ class AddonsPage(Page):
             Sheet.ask(self, "Nexus Launcher", str(e), ("Close",))
 
     def _decky(self, a: addons.Addon) -> None:
+        """Decky's own installer, with its questions asked here, so it works in Game Mode as well as on the desktop."""
         installed = addons.decky_version() is not None
-        if core.in_game_mode():
-            self._desktop_only(a, "Decky's installer asks for your admin password in its own window, so it runs in "
-                                  "Desktop Mode.")
+        if installed:
+            labels = ("Update to the latest release", "Update to the latest prerelease", "Uninstall", "Wipe it",
+                      "Cancel")
+            options = ("update to latest release", "update to latest prerelease", "uninstall decky loader",
+                       "wipe decky loader")
+            text = ("Decky Loader is installed. Deckhand runs Decky's own installer (github.com/SteamDeckHomebrew, "
+                    "the one decky.xyz links to) to update it, or to remove it. \"Wipe it\" also deletes Decky's "
+                    "settings and plugins; \"Uninstall\" keeps them. Use the prerelease only on SteamOS beta.")
+        else:
+            labels = ("Install", "Install the prerelease", "Cancel")
+            options = ("release", "prerelease")
+            text = ("Deckhand runs Decky's own installer (github.com/SteamDeckHomebrew, the one decky.xyz links to) "
+                    "for you. It needs your admin password (or can use a temporary one) and takes a minute. Choose "
+                    "the prerelease only on SteamOS beta.")
+        choice = Sheet.ask(self, "Decky Loader", text, labels, primary=0, danger=(3,) if installed else ())
+        if not 0 <= choice < len(options):
             return
-        what = ("It offers to update, or to uninstall Decky." if installed else
-                "It lets you pick the release (stable SteamOS) or prerelease (beta SteamOS) version.")
-        if Sheet.ask(self, "Decky Loader", "Deckhand downloads Decky's own installer (github.com/SteamDeckHomebrew — "
-                     f"the one decky.xyz links to) and opens it. {what}\n\nIt asks for your admin password. If you "
-                     "haven't set one, it offers to use a temporary one and removes it afterwards.",
-                     ("Open Decky's installer", "Cancel")) != 0:
+        option = options[choice]
+        if option == "wipe decky loader" and Sheet.ask(
+                self, "Wipe Decky Loader?", "This deletes Decky Loader together with its settings and every plugin.",
+                ("Wipe it", "Keep it"), primary=1, danger=(0,)) != 0:
             return
+        password, temporary = self._decky_password()
+        if password is None:
+            return
+        removing = option in ("uninstall decky loader", "wipe decky loader")
         self.status.setText("Downloading Decky's installer…")
         self.show_progress(-1)
 
         def run(status):
-            script = addons.fetch_decky_installer(self.win.paths.downloads)
-            status("Decky's installer is open — follow its windows.")
-            return addons.run_decky_installer(script)
-
-        def finished(_rc) -> None:
-            self.status.setText("")
-            self.show_progress(None)
-            v = addons.decky_version()
-            self.win.flash(f"Decky Loader {v}" if v and v != "installed" else
-                           "Decky Loader is installed" if v else "Decky Loader isn't installed", ms=5000)
-            self.refresh()
-
-        self.win.run_worker(run, finished, self._failed("Decky Loader"), status=self.status.setText, kind="addon")
-
-    def _emudeck(self, a: addons.Addon) -> None:
-        have = addons.emudeck_app() is not None
-        if have:
-            choice = Sheet.ask(self, "EmuDeck", f"EmuDeck is {addons.status(a).lower()}. Open it to set up or "
-                               "change your emulators, or get its newest version.",
-                               ("Open EmuDeck", "Update EmuDeck", "Cancel"))
-            if choice == 0:
-                self._open_emudeck(a)
-            elif choice == 1:
-                self._download_emudeck(a)
-            return
-        if Sheet.ask(self, "EmuDeck", "Deckhand downloads EmuDeck the way its own installer does (the latest version "
-                     "from EmuDeck's GitHub releases, into your Applications folder). EmuDeck then sets up emulators, "
-                     "your ROMs folders and Steam shortcuts.", ("Download EmuDeck", "Cancel")) == 0:
-            self._download_emudeck(a)
-
-    def _download_emudeck(self, a: addons.Addon) -> None:
-        self.status.setText("Downloading EmuDeck…")
-
-        def run(status):
             report = getattr(status, "progress", lambda pct: None)
+            script = addons.fetch_decky_installer(self.win.paths.downloads)
 
-            xfer = core.Transfer("Downloading EmuDeck…")
+            def event(kind: str, value: str) -> None:
+                if kind == "progress":
+                    report(int(value))
+                else:
+                    status(f"Decky Loader: {value}")
+            status("Running Decky's installer…")
+            try:
+                rc, messages = addons.run_decky(script, option, password, temporary, event)
+            except core.InstallError as e:
+                if str(e) != "DECKY_CHANGED":
+                    raise
+                if core.in_game_mode():
+                    raise core.InstallError("Decky's installer has changed since this version of Deckhand, so it "
+                                            "can't run it here. Update Deckhand, or open Deckhand in Desktop Mode "
+                                            "and pick Decky Loader there.") from None
+                status("Decky's installer is open: follow its windows.")  # (Desktop Mode: its own windows still work)
+                rc, messages = addons.run_decky_installer(script), []
+            return rc, messages
 
-            def progress(done: int, total: int) -> None:
-                if total:
-                    status(xfer.text(done, total))
-                    report(done * 100 // total)
-            report(-1)
-            return addons.download_emudeck(progress)
-
-        def finished(version: str) -> None:
+        def finished(result) -> None:
+            nonlocal password
+            password = ""  # (no longer needed)
+            rc, messages = result
             self.status.setText("")
             self.show_progress(None)
+            version = addons.decky_version()
+            ok = (version is None) if removing else (version is not None)
             self.refresh()
-            self.win.flash(f"EmuDeck {version} downloaded" if version else "EmuDeck downloaded")
-            self._open_emudeck(a)
+            if ok and removing:
+                self.win.flash("Decky Loader is removed", ms=5000)
+            elif ok:
+                shown = f" {version}" if version and version != "installed" else ""
+                Sheet.ask(self, "Decky Loader is ready", f"Decky Loader{shown} is installed. Restart Steam so it "
+                          "shows up: STEAM button → Power → Restart Steam. Then open it from the Quick Access menu "
+                          "(the ··· button).", ("Close",))
+            else:
+                why = "\n".join(messages) or f"Decky's installer stopped (code {rc})."
+                Sheet.ask(self, "Decky Loader wasn't changed", why, ("Close",))
 
-        self.win.run_worker(run, finished, self._failed("EmuDeck"), status=self.status.setText, kind="addon",
+        self.win.run_worker(run, finished, self._failed("Decky Loader"), status=self.status.setText, kind="addon",
                             progress=self.show_progress)
 
-    def _open_emudeck(self, a: addons.Addon) -> None:
-        if core.in_game_mode():
-            self._desktop_only(a, "EmuDeck sets itself up in Desktop Mode.")
-            return
-        try:
-            addons.open_emudeck()
-            self.win.flash("EmuDeck is opening…")
-        except (OSError, core.InstallError) as e:
-            Sheet.ask(self, "EmuDeck", str(e), ("Close",))
+    def _decky_password(self) -> tuple[str | None, bool]:
+        """(the admin password to use, whether it is the temporary one), or (None, False) if they backed out."""
+        if addons.admin_password_unset():
+            if Sheet.ask(self, "No admin password yet",
+                         "Your Deck has no admin password, and Decky needs one to install. Deckhand can set the "
+                         f"temporary password \"{addons.DECKY_TEMP_PASSWORD}\" for the install and remove it again "
+                         "when it is done, which is what Decky's own installer offers. Continue?",
+                         ("Continue", "Cancel"), primary=0) != 0:
+                return None, False
+            return addons.DECKY_TEMP_PASSWORD, True
+        text = "Decky's installer needs your admin password." + (
+            "  (STEAM + X opens the keyboard.)" if core.in_game_mode() else "")
+        for attempt in range(3):
+            choice, password = Sheet.ask_text(self, "Admin password", text, ("Continue", "Cancel"),
+                                              placeholder="Password", secret=True)
+            if choice != 0 or not password:
+                return None, False
+            if addons.sudo_accepts(password):
+                return password, False
+            text = "That password wasn't accepted. Try again."
+        Sheet.ask(self, "Admin password", "That password wasn't accepted three times, so nothing was changed.",
+                  ("Close",))
+        return None, False
 
     def _failed(self, name: str):
         def failed(message: str) -> None:
