@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 INSTALLER_SUFFIXES = (".exe", ".msi")
+ARCHIVE_SUFFIXES = (".zip", ".7z", ".rar", ".iso")  # a setup file inside one of these is unpacked first
 
 
 # ── Paths ────────────────────────────────────────────────────────────────────
@@ -961,7 +962,7 @@ def run_command(rt: Runtime, target: str | Path, *extra: str, entry: Path | None
     everything already running in the prefix has exited).
     """
     target = str(target)
-    args = ["msiexec", "/i", target] if target.lower().endswith(".msi") else [target, *extra]
+    args = ["msiexec", "/i", target, *extra] if target.lower().endswith(".msi") else [target, *extra]
     if not rt.is_proton:
         return [rt.path, *args]
     if entry is not None:
@@ -1211,6 +1212,133 @@ class InstallError(Exception):
     pass
 
 
+# ── Setup files inside an archive (.zip, .7z, .rar, .iso) ─────────────────────
+
+
+def _setup_rank(rel: Path, size: int) -> tuple:
+    """Lower sorts first: names that say setup/install, then near the top of the archive, then big ones."""
+    low = rel.name.lower()
+    says = any(w in low for w in ("setup", "install"))
+    return (not says, len(rel.parts), -size)
+
+
+def pick_setup(folder: Path) -> Path | None:
+    """The file in an unpacked archive that is most likely its installer, or None."""
+    best: tuple | None = None
+    found = None
+    for p in sorted(folder.rglob("*")):
+        low = p.name.lower()
+        if not p.is_file() or not low.endswith(INSTALLER_SUFFIXES) or any(w in low for w in _NOT_INSTALLERS):
+            continue
+        try:
+            rank = _setup_rank(p.relative_to(folder), p.stat().st_size)
+        except OSError:
+            continue
+        if best is None or rank < best:
+            best, found = rank, p
+    return found
+
+
+def extract_archive(archive: Path, dest: Path) -> Path:
+    """Unpack `archive` into `dest` (replacing what was there) and return the installer inside it.
+
+    .zip needs nothing; .7z, .rar and .iso use bsdtar or 7z, whichever the Deck has. Nothing escapes `dest`."""
+    import zipfile
+
+    archive = Path(archive)
+    shutil.rmtree(dest, ignore_errors=True)
+    dest.mkdir(parents=True, exist_ok=True)
+    try:
+        if archive.suffix.lower() == ".zip":
+            root = dest.resolve()
+            with zipfile.ZipFile(archive) as z:
+                for info in z.infolist():
+                    if not (root / info.filename).resolve().is_relative_to(root):
+                        raise InstallError("This archive has files that would land outside its folder, so it "
+                                           "wasn't opened.")
+                z.extractall(dest)
+        else:
+            tool = next((t for t in ("bsdtar", "7z", "7za") if shutil.which(t)), None)
+            if tool is None:
+                raise InstallError(f"Deckhand can't open {archive.suffix} files on this Deck. Unpack it with "
+                                   "Ark or Dolphin in Desktop Mode, then pick the setup file inside.")
+            cmd = ([tool, "-xf", str(archive), "-C", str(dest)] if tool == "bsdtar"
+                   else [tool, "x", "-y", f"-o{dest}", str(archive)])
+            r = subprocess.run(cmd, env=clean_env(), stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                               errors="replace")
+            if r.returncode != 0:
+                raise InstallError(f"{archive.name} couldn't be unpacked.\n\n"
+                                   + (r.stderr or r.stdout)[-600:])
+    except (OSError, ValueError, zipfile.BadZipFile) as e:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise InstallError(f"{archive.name} couldn't be opened: {e}") from None
+    except InstallError:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
+    setup = pick_setup(dest)
+    if setup is None:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise InstallError(f"There's no setup file (.exe or .msi) inside {archive.name}. If it holds a game that "
+                           "needs no install, unpack it and add its program from Install → Browse files.")
+    return setup
+
+
+# ── What kind of installer is it? (for installing without questions) ────────
+
+_KIND_SIGNATURES = (
+    ("inno", (b"Inno Setup Setup Data", b"Inno Setup Messages")),
+    ("nsis", (b"Nullsoft Install System", b"NullsoftInst")),
+    ("installshield", (b"InstallShield",)),
+)
+QUIET_ARGS = {
+    "inno": ("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"),
+    "nsis": ("/S",),
+    "msi": ("/qb-!", "/norestart"),  # a small progress bar, no questions
+}
+
+
+def installer_kind(path: Path) -> str:
+    """"inno", "nsis", "msi", "installshield" or "" (not known), from the file's own signatures."""
+    path = Path(path)
+    if path.suffix.lower() == ".msi":
+        return "msi"
+    try:
+        with open(path, "rb") as f:
+            head = f.read(8 << 20)
+    except OSError:
+        return ""
+    for kind, sigs in _KIND_SIGNATURES:
+        if any(sig in head for sig in sigs):
+            return kind
+    return ""
+
+
+def quiet_args(path: Path) -> tuple[str, ...] | None:
+    """The arguments that make this installer install with its default choices and no questions, if it is one
+    that is known to take them (Inno Setup, NSIS, MSI); None otherwise."""
+    return QUIET_ARGS.get(installer_kind(path))
+
+
+def explain_exit(kind: str, rc: int) -> str:
+    """What an installer's exit code most likely means, in plain words ("" if it says nothing useful)."""
+    if rc in (0, 3010):  # (3010: finished, wants a restart, which a program under Proton doesn't need)
+        return ""
+    by_kind = {
+        "inno": {1: "Setup failed to start.", 2: "The installer was cancelled.", 3: "The installer hit an error "
+                 "while preparing.", 4: "The installer hit an error while installing.", 5: "The installer was "
+                 "closed before it finished.", 6: "The installer was stopped.", 7: "The installer couldn't "
+                 "continue.", 8: "The installer couldn't continue."},
+        "nsis": {1: "The installer was cancelled.", 2: "The installer stopped itself (usually an error)."},
+        "msi": {1602: "The installer was cancelled.", 1603: "The installer hit a fatal error.",
+                1618: "Another installation was already running.", 1619: "The installer file couldn't be opened.",
+                1620: "The installer file is damaged.", 1638: "A newer version is already installed."},
+    }
+    known = by_kind.get(kind, {}).get(rc)
+    if known:
+        return f"{known} (code {rc})"
+    return f"The installer reported an error (code {rc})."
+
+
 @dataclass
 class PendingInstall:
     """Result of running an installer: everything needed to finish, plus ranked guesses."""
@@ -1223,6 +1351,8 @@ class PendingInstall:
     candidates: list[Candidate]
     log_file: Path
     new_dirs: list[Path] = field(default_factory=list)  # folders the installer created in home (D:)
+    exit_code: int | None = None  # what the installer itself returned
+    kind: str = ""  # "inno", "nsis", "msi"… when known
 
     @property
     def pfx(self) -> Path:
@@ -1243,8 +1373,10 @@ class Installer:
         steam_roots_override: list[Path] | None = None,
         allow_no_container: bool = False,
         name: str = "",
+        quiet: bool = False,
     ):
         self.installer = Path(installer).expanduser().resolve()
+        self.quiet = quiet  # install with the installer's own defaults and no questions (if it supports that)
         self.name = " ".join(name.split())  # "" = guessed from the installer's file name
         self.paths = paths or Paths.default()
         self.home = Path.home().resolve()
@@ -1419,10 +1551,21 @@ class Installer:
             home_before = snapshot_dirs(home)
 
             # 3. Run the installer.
-            self._set("installer", "Running the installer — follow the steps on screen.\n"
-                      f"Install to C: or D: (both have {human_size(free_space(home))} free).")
-            rc = self._stream(sleep_inhibitor() + run_command(self.runtime, target, entry=self.entry))
+            kind = installer_kind(self.installer)
+            qargs = QUIET_ARGS.get(kind, ()) if self.quiet else ()
+            if self.quiet and not qargs:
+                raise InstallError("This installer can't install without questions. Use the normal install.")
+            if qargs:
+                self._set("installer", "Installing with the installer's default choices — nothing to click.\n"
+                          "This can take a few minutes.")
+                self._log(f"Quick install ({kind}): {' '.join(qargs)}")
+            else:
+                self._set("installer", "Running the installer — follow the steps on screen.\n"
+                          f"Install to C: or D: (both have {human_size(free_space(home))} free).")
+            rc = self._stream(sleep_inhibitor() + run_command(self.runtime, target, *qargs, entry=self.entry))
             self._log(f"Installer exited with code {rc}")
+            if rc not in (0, 3010):
+                self._log("Deckhand: " + explain_exit(kind, rc))
             if self._cancelled:
                 raise Cancelled()
 
@@ -1442,7 +1585,13 @@ class Installer:
                 self._log("New folders outside C: " + ", ".join(map(str, extra)))
             cands = find_program(pfx, name, self.installer, extra)
             self._log("Candidates: " + ", ".join(f"{c.exe.name}={c.score:.0f}" for c in cands[:8]))
-            return PendingInstall(app_id, name, self.installer, compat, self.runtime, cands, log_file, extra)
+            if self.quiet and not cands:
+                raise InstallError("The quick install didn't leave a program behind"
+                                   + (f". {explain_exit(kind, rc)}" if explain_exit(kind, rc) else ".")
+                                   + "\n\nTry Install instead: it shows the installer's own steps, so you can see "
+                                   "what it needs.")
+            return PendingInstall(app_id, name, self.installer, compat, self.runtime, cands, log_file, extra,
+                                  exit_code=rc, kind=kind)
         except Cancelled:
             self._log_directx(pfx)
             self._log("Cancelled.")

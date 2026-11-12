@@ -1078,6 +1078,36 @@ class TestWindow(Env):
         self.pump()
         self.assertEqual(self.win.browser.cwd, sub)  # not bounced back up (or into "inner")
 
+    def test_a_zip_is_unpacked_asked_about_and_cleaned_up(self):
+        import zipfile
+        z = self.downloads / "Cool Game.zip"
+        with zipfile.ZipFile(z, "w") as zf:
+            zf.writestr("Cool Game/setup.exe", "MZ")
+        unpacked = self.paths.downloads / "unpacked"
+        self.answers = [2]  # "Cancel" in the install question
+        self.assertFalse(self.win.confirm_install(z))
+        self.wait_for(lambda: any(t.startswith("Install ") for t in self.asked))
+        self.pump()
+        self.assertIn("Install Cool Game?", self.asked)
+        self.assertEqual(list(unpacked.iterdir()), [])  # cancelled: the unpacked copy is deleted again
+        self.assertTrue(z.exists())  # (the archive itself is never touched)
+
+    def test_an_archive_without_a_setup_file_is_explained(self):
+        import zipfile
+        z = self.downloads / "docs.zip"
+        with zipfile.ZipFile(z, "w") as zf:
+            zf.writestr("readme.txt", "x")
+        self.win.confirm_install(z)
+        self.wait_for(lambda: "Couldn't open it" in self.asked)
+
+    def test_drop_download_removes_only_the_unpacked_folder_of_that_archive(self):
+        base = self.paths.downloads / "unpacked"
+        (base / "A" / "sub").mkdir(parents=True)
+        (base / "B").mkdir()
+        (base / "A/sub/setup.exe").write_text("MZ")
+        self.win.drop_download(base / "A/sub/setup.exe")
+        self.assertEqual([p.name for p in base.iterdir()], ["B"])
+
     def test_sheet_screenshot(self):
         if not self.shots:
             self.skipTest("screenshots only")
