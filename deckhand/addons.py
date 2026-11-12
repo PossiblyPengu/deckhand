@@ -31,6 +31,9 @@ DECKY_INSTALLER_URL = ("https://github.com/SteamDeckHomebrew/decky-installer/rel
 ARCADIA_RELEASE_API = "https://api.github.com/repos/PossiblyPengu/arcadia/releases/latest"
 ARCADIA_APPIMAGE = "Arcadia_x64_SteamDeck.AppImage"
 NEXUS_RELEASE_API = "https://api.github.com/repos/domsvoboda/nexus-launcher/releases/latest"
+NEXUS_RELEASES_API = "https://api.github.com/repos/domsvoboda/nexus-launcher/releases?per_page=15"
+# Its release files have been named both ways (the project is renaming from Xodus Nexus to Nexus Launcher), newest first.
+NEXUS_FAMILIES = ("Nexus-Launcher-", "Xodus-Nexus-")
 NEXUS_APPIMAGE = "Nexus-Launcher.AppImage"  # what the project's own installer calls it too
 
 
@@ -431,21 +434,56 @@ def parse_sha512sum(text: str, name: str) -> str:
     return ""
 
 
+def nexus_asset(assets: list[dict], arch: str) -> dict | None:
+    """The AppImage for `arch` among a release's files: the newest naming, then the older one, then (like the
+    project's own installer) any Nexus/Xodus AppImage for this architecture."""
+    ends = f"-{arch}.AppImage"
+    named = [(str(a.get("name", "")), a) for a in assets]
+    for family in NEXUS_FAMILIES:
+        for name, a in named:
+            if name.startswith(family) and name.endswith(ends):
+                return a
+    for name, a in named:
+        if name.endswith(ends) and ("nexus" in name.lower() or "xodus" in name.lower()):
+            return a
+    return None
+
+
 def nexus_release(fetch: Callable[[str], bytes] | None = None, arch: str | None = None
                   ) -> tuple[str, str, str]:
-    """(version, AppImage URL, sha512 or "") of Nexus Launcher's latest release for this machine.
-    Assets are named Nexus-Launcher-<version>-<arch>.AppImage, each with a .sha512sum file beside it."""
+    """(version, AppImage URL, sha512 or "") of Nexus Launcher's newest release that has an AppImage for this machine.
+    Each AppImage has a .sha512sum file beside it. The latest release is tried first; if it has no AppImage (the
+    project also publishes other kinds of release), the recent ones are searched."""
     import platform
 
-    get = fetch or (lambda url: updater.fetch(url, timeout=30))
+    get = fetch or (lambda url: updater.fetch(url, timeout=30, limit=8 << 20))
     arch = arch or {"x86_64": "x86_64", "amd64": "x86_64", "aarch64": "arm64", "arm64": "arm64"}.get(
         platform.machine().lower(), "x86_64")
+
+    def usable(release) -> list[dict]:
+        return [a for a in (release.get("assets") or []) if isinstance(a, dict) and a.get("browser_download_url")] \
+            if isinstance(release, dict) else []
+
     data = json.loads(get(NEXUS_RELEASE_API))
-    assets = [a for a in data.get("assets", []) if isinstance(a, dict) and a.get("browser_download_url")]
-    asset = next((a for a in assets if str(a.get("name", "")).startswith("Nexus-Launcher-")
-                  and str(a["name"]).endswith(f"-{arch}.AppImage")), None)
+    assets = usable(data)
+    asset = nexus_asset(assets, arch)
+    seen = [str(a.get("name")) for a in assets]
     if asset is None:
-        raise core.InstallError("Couldn't find Nexus Launcher's download in its latest release. Try again later.")
+        try:
+            older = json.loads(get(NEXUS_RELEASES_API))
+        except (OSError, ValueError, updater.UpdateError):
+            older = []
+        for release in older if isinstance(older, list) else []:
+            if not isinstance(release, dict) or release.get("draft") or release.get("prerelease"):
+                continue
+            candidate = nexus_asset(usable(release), arch)
+            if candidate is not None:
+                data, assets, asset = release, usable(release), candidate
+                break
+    if asset is None:
+        raise core.InstallError("Couldn't find a Nexus Launcher download for this Deck in its latest releases. Try "
+                                "again later, or download it from its GitHub releases page.\n\nThe latest release "
+                                f"lists: {', '.join(seen[:8]) or 'no files'}.")
     sha = ""
     side = next((a for a in assets if a.get("name") == asset["name"] + ".sha512sum"), None)
     if side is not None:

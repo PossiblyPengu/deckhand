@@ -388,3 +388,82 @@ class TestDeckyInGameMode(Env):
         os.environ["PATH"] = f"{bindir}:{os.environ['PATH']}"
         self.assertTrue(addons.sudo_accepts("right"))
         self.assertFalse(addons.sudo_accepts("wrong"))
+
+
+class TestNexusFindsTheRealReleaseFiles(Env):
+    """The bug: v0.5.0's files are named Xodus-Nexus-<version>-<arch>.AppImage (the older name), and Deckhand only
+    looked for Nexus-Launcher-…, so it said it couldn't find the download."""
+
+    ARCH_SUM = "ab" * 64
+
+    def release(self, names, tag="v0.5.0", prerelease=False, draft=False):
+        assets = [{"name": n, "browser_download_url": f"https://example.invalid/{tag}/{n}"} for n in names]
+        return {"tag_name": tag, "assets": assets, "prerelease": prerelease, "draft": draft}
+
+    def fetch(self, latest, others=()):
+        def get(url):
+            if url.endswith(".sha512sum"):
+                return f"{self.ARCH_SUM}  {url.rsplit('/', 1)[1][:-len('.sha512sum')]}\n".encode()
+            if "releases/latest" in url:
+                return json.dumps(latest).encode()
+            return json.dumps(list(others)).encode()
+        return get
+
+    def test_a_release_with_only_the_older_file_names_is_found(self):
+        latest = self.release(["Xodus-Nexus-0.5.0-x86_64.AppImage", "Xodus-Nexus-0.5.0-x86_64.AppImage.sha512sum",
+                               "Xodus-Nexus-0.5.0-arm64.AppImage", "Xodus-Nexus-0.5.0-arm64.AppImage.sha512sum"])
+        version, url, sha = addons.nexus_release(self.fetch(latest), arch="x86_64")
+        self.assertEqual((version, url.rsplit("/", 1)[1], sha),
+                         ("0.5.0", "Xodus-Nexus-0.5.0-x86_64.AppImage", self.ARCH_SUM))
+        self.assertTrue(addons.nexus_release(self.fetch(latest), arch="arm64")[1].endswith("-arm64.AppImage"))
+
+    def test_the_newer_names_are_preferred_when_both_are_there(self):
+        latest = self.release(["Xodus-Nexus-0.6.0-x86_64.AppImage", "Nexus-Launcher-0.6.0-x86_64.AppImage"], "v0.6.0")
+        self.assertTrue(addons.nexus_release(self.fetch(latest), arch="x86_64")[1].endswith(
+            "Nexus-Launcher-0.6.0-x86_64.AppImage"))
+
+    def test_any_nexus_or_xodus_appimage_for_the_architecture_will_do(self):
+        latest = self.release(["Nexus Something-x86_64.AppImage", "notes.txt", "other-app-x86_64.AppImage"])
+        self.assertIn("Nexus Something", addons.nexus_release(self.fetch(latest), arch="x86_64")[1])
+
+    def test_a_latest_release_without_an_appimage_falls_back_to_the_recent_releases(self):
+        runtime = self.release(["runtime-linux-x86_64.tar.zst"], "runtime-9")  # (another kind of release)
+        beta = self.release(["Xodus-Nexus-0.9.0-x86_64.AppImage"], "v0.9.0", prerelease=True)
+        draft = self.release(["Xodus-Nexus-0.8.0-x86_64.AppImage"], "v0.8.0", draft=True)
+        good = self.release(["Xodus-Nexus-0.5.0-x86_64.AppImage"])
+        version, url, _ = addons.nexus_release(self.fetch(runtime, [runtime, beta, draft, good]), arch="x86_64")
+        self.assertEqual(version, "0.5.0")  # (not the prerelease, not the draft)
+        self.assertTrue(url.endswith("Xodus-Nexus-0.5.0-x86_64.AppImage"))
+
+    def test_when_nothing_matches_the_error_says_what_was_there(self):
+        latest = self.release(["something.tar.gz", "other.zip"], "v1")
+        with self.assertRaises(core.InstallError) as ctx:
+            addons.nexus_release(self.fetch(latest, [latest]), arch="x86_64")
+        text = str(ctx.exception)
+        self.assertIn("Couldn't find a Nexus Launcher download", text)
+        self.assertIn("something.tar.gz", text)  # (so a bad name can be diagnosed from the screen)
+
+    def test_an_unreadable_list_of_releases_still_gives_the_clear_error(self):
+        latest = self.release(["something.tar.gz"])
+
+        def get(url):
+            if "releases/latest" in url:
+                return json.dumps(latest).encode()
+            raise OSError("no network")
+        with self.assertRaises(core.InstallError):
+            addons.nexus_release(get, arch="x86_64")
+
+    def test_downloading_works_end_to_end_with_the_older_names(self):
+        import hashlib
+        body = b"\x7fELF" + b"\0" * 3000
+        name = "Xodus-Nexus-0.5.0-x86_64.AppImage"
+        latest = self.release([name, name + ".sha512sum"])
+
+        def get(url):
+            if url.endswith(".sha512sum"):
+                return f"{hashlib.sha512(body).hexdigest()}  {name}\n".encode()
+            return json.dumps(latest).encode()
+        self.assertEqual(addons.download_nexus(fetch=get, opener=lambda url: FakeResponse(body)), "0.5.0")
+        self.assertEqual((self.home / "Applications" / addons.NEXUS_APPIMAGE).read_bytes(), body)
+        with self.assertRaises(core.InstallError):  # a wrong checksum is still refused
+            addons.download_nexus(fetch=get, opener=lambda url: FakeResponse(b"\x7fELF" + b"1" * 50))
