@@ -869,6 +869,75 @@ class TestWindow(Env):
         self.wait_for(lambda: not self.win.workers)
         self.assertEqual(core.steam_shortcuts([self.steam]), [])
 
+    # ── Deckhand puts itself in Steam, once ──────────────────────────
+
+    def _auto_add_fakes(self, exe=True, result=(123456, "live"), already=0):
+        from unittest import mock
+        from deckhand import app as app_mod
+        fake_exe = self.tmp / "deckhand-bin"
+        fake_exe.write_text("")
+        calls = []
+        for target, name, value in ((app_mod.start, "self_exe", lambda: fake_exe if exe else None),
+                                    (core, "add_shortcut", lambda *a, **k: (calls.append(a), result)[1]),
+                                    (core, "find_shortcut", lambda *a, **k: already)):
+            patcher = mock.patch.object(target, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        return calls
+
+    def test_deckhand_adds_itself_to_steam_the_first_time_and_only_then(self):
+        calls = self._auto_add_fakes()
+        self.win.auto_add_self_to_steam()
+        self.wait_for(lambda: self.paths.state().get("self_auto_added"))
+        self._let_it_finish()
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], "Deckhand")
+        self.win.auto_add_self_to_steam()  # (the next start: it was added once; if removed since, it stays removed)
+        self._let_it_finish()
+        self.assertEqual(len(calls), 1)
+
+    def test_it_does_nothing_when_deckhand_is_already_in_steam(self):
+        calls = self._auto_add_fakes(already=777)
+        self.win.auto_add_self_to_steam()
+        self.pump(10)
+        self.assertEqual(calls, [])
+        self.assertTrue(self.paths.state().get("self_auto_added"))  # (so it never tries later either)
+
+    def test_it_does_nothing_when_run_from_source(self):
+        calls = self._auto_add_fakes(exe=False)
+        self.win.auto_add_self_to_steam()
+        self.pump(10)
+        self.assertEqual(calls, [])
+        self.assertFalse(self.paths.state().get("self_auto_added"))
+
+    def test_if_steam_does_not_answer_it_tries_again_next_time(self):
+        calls = self._auto_add_fakes(result=(0, "unavailable"))
+        self.win.auto_add_self_to_steam()
+        self.wait_for(lambda: calls)
+        self._let_it_finish()
+        self.assertFalse(self.paths.state().get("self_auto_added"))
+        calls.clear()
+        self.win.auto_add_self_to_steam()
+        self.wait_for(lambda: calls)  # asked again
+        self._let_it_finish()
+
+    def test_a_hand_off_to_a_running_steam_is_remembered_so_it_is_not_sent_twice(self):
+        calls = self._auto_add_fakes(result=(123456, "requested"))
+        self.win.auto_add_self_to_steam()
+        self.wait_for(lambda: self.paths.state().get("self_auto_added"))
+        self._let_it_finish()
+        self.assertTrue(self.paths.state().get("self_steam_requested_at"))
+        self.win.auto_add_self_to_steam()
+        self._let_it_finish()
+        self.assertEqual(len(calls), 1)
+
+    def test_it_can_be_switched_off(self):
+        calls = self._auto_add_fakes()
+        os.environ["DECKHAND_NO_AUTO_STEAM"] = "1"
+        self.win.auto_add_self_to_steam()
+        self.pump(10)
+        self.assertEqual(calls, [])
+
     def test_stores_page_installs_a_windows_store_under_its_own_name(self):
         from deckhand import stores
         from tests.test_addons import FakeResponse

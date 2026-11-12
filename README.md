@@ -122,7 +122,7 @@ curl -fsSL https://raw.githubusercontent.com/PossiblyPengu/deckhand/main/get.sh 
 No pip, pacman, or developer mode needed. The script downloads the prebuilt binary and checks its checksum.
 To get the whole suite in one go, add Arcadia (retro games) too: `curl -fsSL …/get.sh | bash -s -- --with-arcadia`.
 
-- To use Deckhand in Game Mode: **☰ Menu → Add Deckhand to Steam**.
+- **Deckhand puts itself in Steam the first time you open it**, so it is already there in Game Mode (while Steam is running it is handed to Steam, and may show up only after a Steam restart). It does this once: if you remove it later, it isn't added again. To add it by hand: **☰ Menu → Add Deckhand to Steam**. To turn the automatic step off, start it with `DECKHAND_NO_AUTO_STEAM=1`.
 - **Updates are built in:** when a new version is out, a banner on the home screen offers **Update now**; the download is checksum-verified and Deckhand restarts into it. You can also use **☰ Menu → Check for updates**, or `deckhand --update` in Konsole.
 - In Desktop Mode you can also right-click any setup `.exe` → **Open With → Deckhand**.
 - If a program shows "Sent to Steam" but isn't in your library, restart Steam (STEAM button → Power → Restart Steam).
