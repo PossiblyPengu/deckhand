@@ -10,7 +10,7 @@ Deckhand is an installer, not a launcher: once something is installed you play i
 2. Click through the installer as usual.
 3. Done: the program is in your Steam library, with its icon and library artwork.
 
-Built for the Deck: six sections down the left (**Start · Install · Stores · Stream · Add-ons · Installed**, switch with **L1/R1** or tap), full controller support (D-pad/stick to move, **A** select, **B** back, **X** browse, **☰** menu), big touch targets, button hints along the bottom, and full screen in Game Mode. It shares its look with its sister app [Arcadia](https://github.com/PossiblyPengu/arcadia) (`DESIGN.md`: soft pastels, rounded cards and pill buttons, Nunito and Fraunces). Dusk, the dark scheme, is the default; **☰ Menu → Light look** switches to Cloud.
+Built for the Deck: six sections down the left (**Start · Install · Stores · Stream · Add-ons · Installed**, press **left** on the D-pad to reach them, **up/down** to choose and **A** to open, or tap), full controller support (D-pad/stick to move, **A** select, **B** back, **X** browse, **☰** menu), big touch targets, button hints along the bottom, and full screen in Game Mode. It shares its look with its sister app [Arcadia](https://github.com/PossiblyPengu/arcadia) (`DESIGN.md`: soft pastels, rounded cards and pill buttons, Nunito and Fraunces). Dusk, the dark scheme, is the default; **☰ Menu → Light look** switches to Cloud.
 
 ## Start: a checklist for a new Deck
 

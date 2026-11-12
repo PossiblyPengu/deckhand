@@ -47,6 +47,7 @@ QPushButton#station {{
 }}
 QPushButton#station:hover {{ color: {TEXT}; background: {SURFACE}; }}
 QPushButton#station:checked {{ color: {ON_PILL}; background: {PILL}; }}
+QPushButton#station:focus {{ border: 3px solid {ACCENT}; padding: 9px 15px; }}
 
 QPushButton {{
   background: {SURFACE}; border: 3px solid {SURFACE}; border-radius: 29px;
