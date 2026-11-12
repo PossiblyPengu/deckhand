@@ -1,5 +1,5 @@
 {
-  "version": "4.3.1",
-  "sha256": "f6bf5830ed181a313128d14b0e2dacf296f2de2e7dab3a63588e3cb3c0922692",
-  "notes": "Reach the section menu with left on the D-pad, then up/down and A (L1/R1 section switching is gone). The chosen section's icon is readable, the empty Installed page offers where to start, and the Stores intro is shorter."
+  "version": "4.4.0",
+  "sha256": "59cbddd07242927150e4c5f42d3d0958306fcb298772f004a94201ac7f5b4e73",
+  "notes": "Game streaming reworked. Each cloud service keeps its own sign-in, and the launcher finds a browser every time it starts (or says what is missing). When the Deck has no browser, Deckhand asks which one to install and shows its size. Better xCloud now stays current by itself: it is checked before Xbox Cloud Gaming starts, only accepts a real newer Better xCloud that stays on xbox.com, keeps the previous version, and shows its version with an Update now button. Greenlight added for your own Xbox. Quick install for Inno Setup, NSIS and MSI installers, and archives are unpacked for you."
 }
