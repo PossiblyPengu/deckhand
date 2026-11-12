@@ -173,19 +173,21 @@ def browser(installed: set[str], better_xcloud: bool = False) -> str | None:
     return next((b for b in BROWSERS if b in installed), None)
 
 
-def needs(svc: Service, installed: set[str], better_xcloud: bool = False) -> str | None:
+def needs(svc: Service, installed: set[str], better_xcloud: bool = False, prefer: str = "") -> str | None:
     """The Flathub app that must be installed first, or None."""
-    if uses(svc, installed, better_xcloud) in installed:
+    if uses(svc, installed, better_xcloud, prefer) in installed:
         return None
-    return uses(svc, installed, better_xcloud)
+    return uses(svc, installed, better_xcloud, prefer)
 
 
-def uses(svc: Service, installed: set[str], better_xcloud: bool = False) -> str:
-    """What the service runs in: a Flatpak id, or "local:<service id>" for a copy installed another way."""
+def uses(svc: Service, installed: set[str], better_xcloud: bool = False, prefer: str = "") -> str:
+    """What the service runs in: a Flatpak id, or "local:<service id>" for a copy installed another way.
+    `prefer`: the browser to install if none is here yet (Google Chrome if not said)."""
     if svc.native and svc.native in installed and not better_xcloud:
         return svc.native
     if svc.is_web:
-        return browser(installed, better_xcloud) or (CHROMIUM if better_xcloud else CHROME)
+        return browser(installed, better_xcloud) or (
+            CHROMIUM if better_xcloud else prefer if prefer in BROWSERS else CHROME)
     if svc.app not in installed and f"local:{svc.id}" in installed:
         return f"local:{svc.id}"
     return svc.app
@@ -438,10 +440,11 @@ def app_for(svc: Service, paths: core.Paths, kind: str = "stream") -> core.App |
 
 def set_up(svc: Service, paths: core.Paths, status: Callable[[str], None] = lambda s: None,
            roots=None, better_xcloud: bool | None = None, fetch: Callable[[str], bytes] | None = None,
-           kind: str = "stream") -> core.App:
+           kind: str = "stream", browser: str | None = None) -> core.App:
     """Install what the service needs, write its launcher and add it to Steam (only once).
     `better_xcloud` (Xbox Cloud Gaming only): turn it on/off; None keeps the current choice.
-    `kind` is the App's kind: "stream", or "store" for a game store's Linux app (stores.py)."""
+    `kind` is the App's kind: "stream", or "store" for a game store's Linux app (stores.py).
+    `browser`: which browser to install if the Deck has none (a cloud service); ignored if one is already there."""
     existing = app_for(svc, paths, kind)
     if better_xcloud is None:
         better_xcloud = bool(existing and BETTER_XCLOUD in existing.options)
@@ -449,7 +452,7 @@ def set_up(svc: Service, paths: core.Paths, status: Callable[[str], None] = lamb
     # A service set up before profiles existed keeps its shared sign-in (changing it would sign people out).
     own_profile = svc.is_web and (existing is None or OWN_PROFILE in existing.options)
     installed = detect(installed_apps(), (svc,))
-    need = needs(svc, installed, better_xcloud)
+    need = needs(svc, installed, better_xcloud, browser or "")
     if need:
         report = getattr(status, "progress", lambda pct: None)
         what = svc.name if need == svc.app else app_name(need)

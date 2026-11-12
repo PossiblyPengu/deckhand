@@ -709,7 +709,8 @@ class MainWindow(QMainWindow):
         self.run_worker(lambda status: stores.set_up(s, self.paths, status), finished, page._failed(s.name),
                         status=page.status.setText, kind="store", progress=page.show_progress)
 
-    def set_up_stream(self, svc: streaming.Service, better_xcloud: bool | None = None) -> None:
+    def set_up_stream(self, svc: streaming.Service, better_xcloud: bool | None = None,
+                      browser: str | None = None) -> None:
         page = self.streaming
         page.status.setText(f"Setting up {svc.name}…")
 
@@ -728,7 +729,8 @@ class MainWindow(QMainWindow):
             head, _, rest = message.partition("\n\n")
             Sheet.ask(self, f"Couldn't set up {svc.name}", head, ("Close",), detail=rest)
 
-        self.run_worker(lambda status: streaming.set_up(svc, self.paths, status, better_xcloud=better_xcloud),
+        self.run_worker(lambda status: streaming.set_up(svc, self.paths, status, better_xcloud=better_xcloud,
+                                                        browser=browser),
                         finished, failed,
                         status=page.status.setText, kind="stream", progress=page.show_progress)
 
@@ -899,7 +901,8 @@ class MainWindow(QMainWindow):
                 if streaming.needs(svc, have, bx) is not None:
                     continue
                 try:
-                    streaming.write_launcher(svc, self.paths, have, bx, app.kind)
+                    streaming.write_launcher(svc, self.paths, have, bx, app.kind,
+                                             own_profile=streaming.OWN_PROFILE in app.options)
                 except OSError:
                     pass
 

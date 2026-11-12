@@ -163,11 +163,34 @@ class StreamingPage(Page):
                     + desktop_note)
             choice = Sheet.ask(self, f"Add {svc.name} to Steam?", text,
                                ("Add to Steam", "Add with Better xCloud", "Cancel"))
-            if choice in (0, 1):
-                self.win.set_up_stream(svc, better_xcloud=choice == 1)
+            if choice == 1:  # (Better xCloud only works in Chromium: nothing to choose)
+                self.win.set_up_stream(svc, better_xcloud=True)
+            elif choice == 0:
+                browser = self._ask_browser(svc, installed)
+                if browser is not None:
+                    self.win.set_up_stream(svc, better_xcloud=False, browser=browser or None)
+            return
+        if svc.is_web and need:  # no browser yet: the one question that matters is which
+            browser = self._ask_browser(svc, installed)
+            if browser:
+                self.win.set_up_stream(svc, browser=browser)
             return
         if Sheet.ask(self, f"Add {svc.name} to Steam?", text, ("Add to Steam", "Cancel")) == 0:
             self.win.set_up_stream(svc)
+
+    def _ask_browser(self, svc: streaming.Service, installed: set[str], intro: str = "") -> str | None:
+        """Which browser to install for a cloud service, when the Deck has none. "" if nothing needs asking (a browser
+        or the service's own app is already there), None if cancelled."""
+        if not svc.is_web or streaming.browser(installed) or (svc.native and svc.native in installed):
+            return ""
+        short = {streaming.CHROME: "Chrome", streaming.EDGE: "Edge", streaming.CHROMIUM: "Chromium"}
+        labels = [f"{short[b]} · {streaming.download_note(b).replace('about ', '')}" for b in streaming.BROWSERS]
+        text = (intro + f"{svc.name} runs in a web browser and this Deck has none yet. Deckhand installs the one you pick "
+                "from Flathub, once: every cloud service shares it, but each keeps its own sign-in. Then "
+                f"{svc.name} is in your Steam library, full screen with the controller working. Chrome is the "
+                "smallest; Chromium takes the most room (about 480 MB installed).")
+        choice = Sheet.ask(self, f"Which browser for {svc.name}?", text, (*labels, "Cancel"), primary=0)
+        return streaming.BROWSERS[choice] if 0 <= choice < len(streaming.BROWSERS) else None
 
     def _update_better_xcloud(self) -> None:
         self.status.setText("Looking for a newer Better xCloud…")

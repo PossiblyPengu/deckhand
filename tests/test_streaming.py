@@ -359,3 +359,22 @@ class TestStreamingSignInAndLauncher(FlatpakEnv):
         self.assertEqual(streaming.download_note("com.google.Chrome"), "about 160 MB")
         self.assertEqual(streaming.download_note("com.microsoft.Edge"), "about 210 MB")
         self.assertEqual(streaming.download_note("com.moonlight_stream.Moonlight"), "")
+
+    def test_the_browser_to_install_can_be_chosen(self):
+        svc = streaming.service("amazon-luna")
+        self.assertEqual(streaming.needs(svc, set()), "com.google.Chrome")  # (the default)
+        self.assertEqual(streaming.needs(svc, set(), prefer="com.microsoft.Edge"), "com.microsoft.Edge")
+        self.assertEqual(streaming.needs(svc, set(), prefer="not.a.browser"), "com.google.Chrome")
+        # One that is already installed is never replaced by the preference.
+        self.assertIsNone(streaming.needs(svc, {"org.chromium.Chromium"}, prefer="com.microsoft.Edge"))
+        # Better xCloud only ever runs in Chromium, whatever was preferred.
+        self.assertEqual(streaming.needs(streaming.service("xbox-cloud"), set(), True, "com.microsoft.Edge"),
+                         "org.chromium.Chromium")
+
+    def test_set_up_installs_only_the_chosen_browser(self):
+        app = streaming.set_up(streaming.service("boosteroid"), self.paths, roots=[self.steam],
+                               browser="com.microsoft.Edge")
+        installs = [c for c in self.calls() if c.startswith("install")]
+        self.assertEqual(len(installs), 1)
+        self.assertIn("com.microsoft.Edge", installs[0])
+        self.assertIn("B=com.microsoft.Edge", Path(app.launcher).read_text())
