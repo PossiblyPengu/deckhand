@@ -59,8 +59,6 @@ ADDONS = (
     Addon("nexus", "Xbox PC games (Nexus Launcher)",
           "Your Xbox and Game Pass PC games, built on Xodus. New and experimental", "GitHub", "#107c10"),
     Addon("decky", "Decky Loader", "Plugins for the Quick Access menu", "decky.xyz", "#6b35c8"),
-    Addon("retrodeck", "RetroDECK", "Emulators and your retro games in one app (Arcadia is the lighter option)", "Flathub", "#8f5ae8",
-          app="net.retrodeck.retrodeck", steam=True),
     Addon("ge-proton", "GE-Proton", "Proton with extra fixes: more games and installers work", "GitHub", "#c0392b"),
     Addon("protonup-qt", "ProtonUp-Qt", "Install and manage Proton versions for Steam and Heroic", "Flathub",
           "#5c6bc0", app="net.davidotek.pupgui2"),

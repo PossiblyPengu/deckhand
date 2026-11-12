@@ -23,9 +23,9 @@ from ..widgets import ElideLabel, PILL_ROLE, TONE_ROLE, button, draw_glyph
 if TYPE_CHECKING:
     from ..app import MainWindow
 
-COLUMNS = 4  # tiles per row next to the rail
+COLUMNS = 5  # tiles per row across the full width
 
-PAGE_MARGINS = (40, 30, 40, 22)  # every page lines up with the rail's wordmark
+PAGE_MARGINS = (40, 30, 40, 22)  # every page lines up with the hub's wordmark
 
 MAX_FOUND = 2 * COLUMNS - 1  # two rows of tiles, the first being "Browse files"
 
@@ -164,7 +164,7 @@ class Page(QWidget):
         return [*hints[:-1], ("LR", "Page", lambda: self.win.page_list(1)), hints[-1]]
 
     def back(self) -> None:
-        self.win.go_home()
+        self.win.go_hub()
 
     def x(self) -> None:
         pass

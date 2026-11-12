@@ -88,9 +88,10 @@ class TestWindow(Env):
         QTest.keyClick(QApplication.focusWidget(), k)
         self.pump()
 
-    def test_deckhand_opens_on_the_start_checklist(self):
+    def test_deckhand_opens_on_the_hub(self):
+        self.assertIs(self.win.stack.currentWidget(), self.win.hub)
+        self.win.switch_section("start")
         self.assertIs(self.win.stack.currentWidget(), self.win.start)
-        self.assertTrue(self.win.stations["start"].isChecked())
         ids = [self.win.start.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.win.start.list.count())]
         self.assertEqual(ids, ["proton", "steam", "stores", "stream", "decky", "arcadia", "program"])
         before = {st.id: st.done for st in self.win.start.steps}
@@ -191,9 +192,9 @@ class TestWindow(Env):
         self.key(Qt.Key.Key_Left)
         self.key(Qt.Key.Key_Left)
         self.assertIs(QApplication.focusWidget(), tiles[0])
-        self.key(Qt.Key.Key_Left)  # nothing further left in the page: on to the section rail
-        self.assertIn(QApplication.focusWidget(), self.win.stations.values())
-        self.key(Qt.Key.Key_Right)  # and right goes back to the page
+        self.key(Qt.Key.Key_Left)  # nothing further left: stays on the page
+        self.assertIs(QApplication.focusWidget(), tiles[0])
+        self.key(Qt.Key.Key_Right)
         self.assertIsInstance(QApplication.focusWidget(), __import__("deckhand.widgets", fromlist=["Tile"]).Tile)
         while QApplication.focusWidget() is not tiles[0]:
             self.key(Qt.Key.Key_Left)
@@ -285,17 +286,17 @@ class TestWindow(Env):
             win = app_mod.MainWindow(self.paths, check_updates=True)  # checks in the background at start
             win.installer_dirs = [self.downloads]
             win.show()
-            self.wait_for(lambda: win.start.banner.isVisible())  # on Start, where Deckhand opens
-            self.assertIn("9.0.0 is available", win.start.banner_text.text())
+            self.wait_for(lambda: win.hub.banner.isVisible())  # on the hub, where Deckhand opens
+            self.assertIn("9.0.0 is available", win.hub.banner_text.text())
             self.assertIn("9.0.0 is available", win.home.banner_text.text())
             self.assertFalse(win.home.banner.isHidden())  # and on Install
             self.shot("8-update-banner", win)
-            win.start.update_btn.click()
+            win.hub.update_btn.click()
             self.assertIs(win.stack.currentWidget(), win.updating)
             self.wait_for(lambda: win.updating.restart_btn.isVisible())
             self.shot("9-update-done", win)
             self.assertEqual(target.read_bytes(), NEW_APP)
-            self.assertTrue(win.home.banner.isHidden() and win.start.banner.isHidden())
+            self.assertTrue(win.home.banner.isHidden() and win.hub.banner.isHidden())
             win.updating.restart_btn.click()
             self.assertEqual(restarted, [target])
             win.close()
@@ -482,7 +483,6 @@ class TestWindow(Env):
         self.win.go_home()
         self.win.switch_section("stream")
         self.assertIs(self.win.stack.currentWidget(), self.win.streaming)
-        self.assertTrue(self.win.stations["stream"].isChecked())
         page = self.win.streaming
         self.wait_for(lambda: page.installed is not None)
         self.assertIn("installs Google Chrome", page.list.item(0).text())
@@ -702,9 +702,9 @@ class TestWindow(Env):
         self.win.switch_section("addons")
         page = self.win.addons
         self.assertIs(self.win.stack.currentWidget(), page)
-        self.assertTrue(self.win.stations["addons"].isChecked())
         ids = [a.id for a in addons.ADDONS]
-        self.assertNotIn("emudeck", ids)  # (Arcadia replaces it)
+        self.assertNotIn("emudeck", ids)  # (Arcadia replaces both)
+        self.assertNotIn("retrodeck", ids)
         self.assertIn("Arcadia", page.list.item(0).text())  # the sister app comes first
         self.assertIn("Decky Loader", page.list.item(ids.index("decky")).text())
         self.assertIn("Not installed", page.list.item(ids.index("decky")).text())
@@ -1190,7 +1190,7 @@ class TestWindow(Env):
     def test_l1_and_r1_still_page_the_list_when_the_focus_is_elsewhere(self):
         page, lst = self._addons_list()
         lst.setCurrentRow(0)
-        self.win.stations["addons"].setFocus()  # (on the section menu, not the list)
+        self.win.hub.menu_btn.setFocus()  # (not on the list)
         self.pump()
         self.win.on_action("rb")
         self.assertGreaterEqual(lst.currentRow(), 3)
@@ -1225,47 +1225,6 @@ class TestWindow(Env):
         self.assertNotIn("☰", [h[0] for h in self.win.progress.hints()])
         self.assertNotIn("☰", [h[0] for h in self.win.updating.hints()])
 
-    def test_going_right_from_the_section_menu_returns_to_where_you_were(self):
-        from PyQt6.QtWidgets import QApplication
-        for n in ("a.exe", "b.exe", "c.exe", "d.exe", "e.exe", "f.exe"):
-            self.add_installer(n, 10)
-        self.win.go_home()
-        self.pump()
-        tiles = self.win.home.tiles
-        last = tiles[-1]
-        self.assertIsNot(last, tiles[0])
-        nav = self.win.nav
-        # Where "nearest" would go from the section menu, with nothing remembered: that must not be `last`,
-        # or this test could not tell memory from geometry.
-        nav.page_focus = None
-        self.win.stations["install"].setFocus()
-        self.pump()
-        nav.move("right")
-        self.pump()
-        nearest = QApplication.focusWidget()
-        self.assertIsNot(nearest, last)
-        # Now leave from `last` for the section menu, and come back: it returns to `last`.
-        last.setFocus()
-        self.pump()
-        self.win.stations["install"].setFocus()
-        self.pump()
-        self.assertIs(nav.page_focus, last)
-        nav.move("right")
-        self.pump()
-        self.assertIs(QApplication.focusWidget(), last)
-
-    def test_going_right_with_nothing_remembered_still_finds_the_page(self):
-        from PyQt6.QtWidgets import QApplication
-        self.win.go_home()
-        self.pump()
-        nav = self.win.nav
-        nav.page_focus = None
-        self.win.stations["install"].setFocus()
-        self.pump()
-        nav.move("right")
-        self.pump()
-        self.assertNotEqual(QApplication.focusWidget().objectName(), "station")
-
     def test_it_can_be_switched_off(self):
         calls = self._auto_add_fakes()
         os.environ["DECKHAND_NO_AUTO_STEAM"] = "1"
@@ -1280,7 +1239,6 @@ class TestWindow(Env):
         self.win.switch_section("stores")
         page = self.win.stores
         self.assertIs(self.win.stack.currentWidget(), page)
-        self.assertTrue(self.win.stations["stores"].isChecked())
         rows = [page.list.item(i).text().split("\n")[0] for i in range(page.list.count())]
         self.assertEqual(rows, [s.name for s in stores.STORES])
         row = rows.index("Battle.net")
@@ -1699,55 +1657,62 @@ class TestWindow(Env):
         self.pump()
         self.assertEqual(self.win.browser.cwd, sub)  # not bounced back up (or into "inner")
 
-    def test_the_rail_is_reached_with_left_and_used_with_up_down_and_a(self):
+    def test_the_hub_reaches_every_section_with_the_dpad_and_a_and_b_comes_back(self):
         from deckhand import nav
+        from deckhand.pages.hub import SECTIONS
         win = self.win
-        win.switch_section("addons")
+        win.go_hub()
         self.pump()
-        for b in win.stations.values():
-            self.assertTrue(b.focusPolicy() & Qt.FocusPolicy.TabFocus)  # focusable: no L1/R1 needed
-        lst = win.addons.list
-        lst.setFocus()
+        self.assertEqual(list(win.hub.cards), [k for k, *_ in SECTIONS])
+        pages = {"start": win.start, "install": win.home, "stores": win.stores, "stream": win.streaming,
+                 "addons": win.addons, "installed": win.installed}
+        for key, card in win.hub.cards.items():
+            win.go_hub()
+            self.pump()
+            card.setFocus()
+            self.pump()
+            win.nav_activate()
+            self.wait_for(lambda: win.stack.currentWidget() is pages[key])
+            win.on_action("b")
+            self.assertIs(win.stack.currentWidget(), win.hub, f"B from {key}")
+        # every card can be reached from the first one by D-pad alone
+        win.go_hub()
         self.pump()
-        rects = lambda ws: [(w, nav._grect(w)) for w in ws]  # noqa: E731
-        cands = [w for w in nav.focusable(win) if w is not lst]
-        left = nav.nearest(nav._grect(lst), rects(cands), "left")
-        self.assertIn(left, win.stations.values())  # left from the page lands in the rail
-        down = nav.nearest(nav._grect(win.stations["addons"]), rects(cands), "down")
-        self.assertIs(down, win.stations["installed"])  # down is the next section
-        up = nav.nearest(nav._grect(win.stations["addons"]), rects(cands), "up")
-        self.assertIs(up, win.stations["stream"])
-        right = nav.nearest(nav._grect(win.stations["addons"]), rects(cands + [lst]), "right")
-        self.assertIsNotNone(right)
-        self.assertNotIn(right, win.stations.values())  # right goes back to the page
+        seen = {QApplication.focusWidget()}
+        for d in ("right", "right", "down", "left", "left", "down"):
+            win.nav.move(d)
+            seen.add(QApplication.focusWidget())
+        self.assertTrue(set(win.hub.cards.values()) <= seen | {win.hub.cards["start"]}, "a card is out of reach")
+        for d in ("down", "down"):
+            win.nav.move(d)
+        self.assertIs(QApplication.focusWidget(), win.hub.menu_btn)
+        self.assertGreater(len(nav.focusable(win)), 6)
 
-    def test_choosing_a_section_from_the_rail_moves_focus_into_its_page(self):
+    def test_the_hub_says_what_is_left_and_starts_where_you_are_needed(self):
         win = self.win
-        win.stations["stores"].setFocus()
-        win.stations["stores"].click()
-        self.wait_for(lambda: win.stack.currentWidget() is win.stores)
+        win.go_hub()
         self.pump()
-        fw = QApplication.focusWidget()
-        self.assertTrue(fw is not None and win.stores.isAncestorOf(fw))
-        # Choosing the section you are already in also carries on into the page.
-        win.stations["stores"].setFocus()
-        win.stations["stores"].click()
-        self.pump(10)
-        fw = QApplication.focusWidget()
-        self.assertTrue(fw is not None and win.stores.isAncestorOf(fw))
+        self.assertIs(QApplication.focusWidget(), win.hub.cards["start"])  # a new Deck: the checklist first
+        self.assertIn("to go", win.hub.cards["start"].detail)
+        self.assertIn("free", win.hub.space.text())
+        self.assertEqual(win.hub.cards["installed"].detail, "Nothing installed yet")
 
-    def test_nothing_in_the_rail_is_cut_off(self):
-        from PyQt6.QtWidgets import QFrame, QLabel
-        rail = self.win.findChild(QFrame, "rail")
-        self.pump()
-        for lab in rail.findChildren(QLabel):
-            if lab.text() and lab.objectName() != "wordmark":
-                m = lab.contentsMargins()
-                need = lab.fontMetrics().horizontalAdvance(lab.text()) + m.left() + m.right()
-                self.assertLessEqual(need, rail.width(), f"'{lab.text()}' needs {need}px in a {rail.width()}px rail")
-        for b in self.win.stations.values():
-            text_w = b.fontMetrics().horizontalAdvance(b.text()) + b.iconSize().width() + 18 * 2 + 14 * 2 + 12
-            self.assertLessEqual(text_w, rail.width(), b.text())
+    def test_no_page_makes_the_window_wider_than_the_deck(self):
+        for page in [self.win.stack.widget(i) for i in range(self.win.stack.count())]:
+            self.win.go(page)
+            self.pump()
+            self.assertLessEqual(self.win.minimumSizeHint().width(), 1280, type(page).__name__)
+            self.assertLessEqual(self.win.width(), 1280, type(page).__name__)
+
+    def test_there_is_no_sidebar(self):
+        from PyQt6.QtWidgets import QFrame
+        self.assertIsNone(self.win.findChild(QFrame, "rail"))
+        self.assertFalse(hasattr(self.win, "stations"))
+
+    def test_every_hub_card_fits_its_words(self):
+        from deckhand.pages.hub import SectionCard
+        for card in self.win.hub.findChildren(SectionCard):
+            self.assertLessEqual(card.fontMetrics().horizontalAdvance(card.title), card.W - 140, card.title)
 
     def test_there_is_no_shoulder_button_section_switching(self):
         before = self.win.stack.currentWidget()

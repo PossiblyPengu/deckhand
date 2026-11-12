@@ -23,6 +23,7 @@ SCHEMES = {
     ),
 }
 SCHEME = "dusk"
+HUB_TINTS = ("#f7b2c4", "#b9c7f2", "#a8d5a2", "#f2d398", "#c9b2f0", "#9fd8d4")  # one pastel per section card
 
 
 def stylesheet() -> str:
@@ -40,14 +41,6 @@ QLabel#ok {{ font-family: "{TITLE_FONT}"; font-size: 30px; font-weight: 600; col
 QLabel#chip {{ background: {SURFACE}; color: {TEXT_DIM}; border-radius: 14px; padding: 4px 14px; font-size: 15px;
   font-weight: 800; }}
 QLabel#wordmark {{ font-family: "{TITLE_FONT}"; font-size: 30px; font-weight: 600; }}
-QFrame#rail {{ background: {RAIL}; border-right: 1px solid {LINE}; }}
-QPushButton#station {{
-  background: transparent; border: none; border-radius: 24px; margin: 0 14px;
-  text-align: left; padding: 12px 18px; font-size: 19px; font-weight: 700; color: {MUTED};
-}}
-QPushButton#station:hover {{ color: {TEXT}; background: {SURFACE}; }}
-QPushButton#station:checked {{ color: {ON_PILL}; background: {PILL}; }}
-QPushButton#station:focus {{ border: 3px solid {ACCENT}; padding: 9px 15px; }}
 
 QPushButton {{
   background: {SURFACE}; border: 3px solid {SURFACE}; border-radius: 29px;

@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import (
 
 from . import __version__, addons, artwork, cleanup, core, saves, start, steamgriddb, stores, streaming, theme, updater
 from .nav import Nav
-from .pages import (AddonsPage, BrowserPage, DonePage, HomePage, InstallPage, InstalledPage,
+from .pages import (AddonsPage, BrowserPage, DonePage, HomePage, HubPage, InstallPage, InstalledPage,
                     PickPage, StartPage, StoresPage, StreamingPage, UpdatePage)
 from .pages.common import (Page, REMOVE_IN_STEAM, ago, app_icon, close_steam_first,
                            count_names, ensure_app_icon, glyph_icon, logo_icon, select_row)
@@ -66,13 +66,7 @@ class MainWindow(QMainWindow):
         root = QWidget()
         root.setObjectName("root")
         self.setCentralWidget(root)
-        outer = QHBoxLayout(root)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-        outer.addWidget(self._rail())
-        main = QWidget()
-        outer.addWidget(main, 1)
-        v = QVBoxLayout(main)
+        v = QVBoxLayout(root)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
         self.stack = QStackedWidget()
@@ -81,6 +75,7 @@ class MainWindow(QMainWindow):
         v.addWidget(self.hint_bar)
         self.toast = Toast(self)  # on the window itself, so it stays visible over sheets
 
+        self.hub = HubPage(self)
         self.start = StartPage(self)
         self.home = HomePage(self)
         self.browser = BrowserPage(self)
@@ -92,7 +87,7 @@ class MainWindow(QMainWindow):
         self.stores = StoresPage(self)
         self.streaming = StreamingPage(self)
         self.addons = AddonsPage(self)
-        for p in (self.start, self.home, self.browser, self.progress, self.pick, self.done, self.updating, self.installed,
+        for p in (self.hub, self.start, self.home, self.browser, self.progress, self.pick, self.done, self.updating, self.installed,
                   self.stores, self.streaming, self.addons):
             self.stack.addWidget(p)
 
@@ -113,7 +108,7 @@ class MainWindow(QMainWindow):
         ensure_app_icon()
         self.sync_steam_ids()
         self.add_logos()
-        self.go(self.start)
+        self.go(self.hub)
         dupes = core.find_duplicate_shortcuts(None, self.paths.launchers)
         if dupes:
             self.flash(f"Steam has {len(dupes)} duplicate shortcut{'s' * (len(dupes) != 1)} — "
@@ -135,53 +130,6 @@ class MainWindow(QMainWindow):
     # chrome
     SECTIONS = ("start", "install", "stores", "stream", "addons", "installed")
 
-    def _rail(self) -> QWidget:
-        """Deckhand's sections down the left: tap them, or press left on the D-pad to reach them, up and down to
-        choose and A to open (right goes back to the page)."""
-        rail = QFrame()
-        rail.setObjectName("rail")
-        rail.setFixedWidth(206)
-        v = QVBoxLayout(rail)
-        v.setContentsMargins(0, 22, 0, 18)
-        v.setSpacing(4)
-        mark = QLabel(f'deckhand<span style="color:{theme.ACCENT}">.</span>')
-        mark.setObjectName("wordmark")
-        mark.setContentsMargins(24, 0, 0, 18)
-        v.addWidget(mark)
-        self.stations: dict[str, QPushButton] = {}
-        self.station_glyphs: dict[str, str] = {}
-        for key, text, glyph in (("start", "Start", "flag"), ("install", "Install", "download"), ("stores", "Stores", "bag"),
-                                 ("stream", "Stream", "signal"), ("addons", "Add-ons", "plus"),
-                                 ("installed", "Installed", "stack")):
-            b = QPushButton(text)
-            b.setObjectName("station")
-            b.setCheckable(True)
-            b.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-            b.setIcon(glyph_icon(glyph))
-            b.setIconSize(QSize(26, 26))
-            b.clicked.connect(lambda _c=False, k=key: self.switch_section(k))
-            v.addWidget(b)
-            self.stations[key] = b
-            self.station_glyphs[key] = glyph
-        v.addStretch(1)
-        menu = QPushButton("Menu")
-        menu.setObjectName("station")
-        menu.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        menu.setIcon(glyph_icon("menu"))
-        menu.setIconSize(QSize(26, 26))
-        menu.clicked.connect(lambda _c=False: self.open_menu())
-        v.addWidget(menu)
-        v.addSpacing(12)
-        self.space = label("", "muted", wrap=False)
-        self.space.setContentsMargins(24, 0, 0, 2)
-        v.addWidget(self.space)
-        for text in ("◀ for sections", f"Deckhand {__version__}"):
-            foot = label(text, "muted", wrap=False)
-            foot.setContentsMargins(24, 0, 0, 0)
-            v.addWidget(foot)
-        self.crumb = QLabel()  # (the page's own heading says where you are)
-        return rail
-
     def section_of(self, page: QWidget) -> str | None:
         if page is self.start:
             return "start"
@@ -201,11 +149,9 @@ class MainWindow(QMainWindow):
         current = self.section_of(self.stack.currentWidget())
         if key == current and self.stack.currentWidget() in (self.start, self.home, self.stores, self.streaming, self.addons,
                                                              self.installed):
-            self._sync_stations()
-            self.stack.currentWidget().enter()  # (picked from the rail: carry on into the page)
+            self.stack.currentWidget().enter()
             return
         if self.must_stay():
-            self._sync_stations()
             return
         {"start": self.show_start, "install": self.go_home, "stores": self.show_stores, "stream": self.show_streaming,
          "addons": self.show_addons, "installed": self.show_installed}[key]()
@@ -218,13 +164,6 @@ class MainWindow(QMainWindow):
             return True
         return False
 
-    def _sync_stations(self) -> None:
-        current = self.section_of(self.stack.currentWidget())
-        for key, b in self.stations.items():
-            b.setChecked(key == current)
-            # (the chosen section is a pill: its icon must read on the pill, not on the rail)
-            b.setIcon(glyph_icon(self.station_glyphs[key], theme.ON_PILL if key == current else theme.TEXT_DIM))
-
     def _focus_changed(self, _old, _new) -> None:
         self.update_hints()
 
@@ -235,25 +174,27 @@ class MainWindow(QMainWindow):
                 isinstance(QApplication.focusWidget(), QLineEdit) else ""
             self.hint_bar.set_hints(page.hints(), note)
 
-    def refresh_space(self) -> None:
-        self.space.setText(f"{core.human_size(core.free_space(self.paths.root))} free")
-
     def go(self, page: Page) -> None:
         self.stack.setCurrentWidget(page)
-        self.crumb.setText(page.title or "Install a Windows program")
-        self._sync_stations()
-        self.refresh_space()
         page.enter()
         self.update_hints()
 
+    def refresh_space(self) -> None:
+        self.hub.refresh_space()
+
     def go_home(self) -> None:
+        """The Install section (where a finished or cancelled install lands)."""
         self.go(self.home)
+
+    def go_hub(self) -> None:
+        """The front door: the six sections."""
+        self.go(self.hub)
 
     def show_start(self) -> None:
         self.go(self.start)
 
     def hide_banners(self) -> None:
-        for page in (self.start, self.home):
+        for page in (self.hub, self.start, self.home):
             page.banner.hide()
 
     def open_addon(self, addon_id: str) -> None:
@@ -1205,6 +1146,7 @@ class MainWindow(QMainWindow):
             self.update_info = update
             if manual or not self.update_dismissed:
                 self.home.show_banner(update)
+                self.hub.show_banner(update)
                 self.start.show_banner(update)
             if manual and Sheet.ask(self, f"Deckhand {update.version} is available",
                                     (update.notes + "\n\n" if update.notes else "") + f"You have {__version__}.",

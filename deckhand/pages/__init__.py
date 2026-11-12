@@ -5,6 +5,7 @@ from .addons import AddonsPage
 from .browser import BrowserPage
 from .done import DonePage
 from .home import HomePage
+from .hub import HubPage
 from .install import InstallPage
 from .installed import InstalledPage
 from .pick import PickPage
@@ -13,5 +14,5 @@ from .stores import StoresPage
 from .streaming import StreamingPage
 from .update import UpdatePage
 
-__all__ = ["AddonsPage", "BrowserPage", "DonePage", "HomePage", "InstallPage", "InstalledPage", "PickPage",
+__all__ = ["AddonsPage", "BrowserPage", "DonePage", "HomePage", "HubPage", "InstallPage", "InstalledPage", "PickPage",
            "StartPage", "StoresPage", "StreamingPage", "UpdatePage"]
