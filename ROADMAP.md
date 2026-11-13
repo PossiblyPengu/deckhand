@@ -1,59 +1,78 @@
 # Deckhand + Arcadia: audit and plan
 
-Audit date 2026-11-12, covering both apps as released (Deckhand 4.3.1, Arcadia 0.1.1) plus the Arcadia 0.1.2 branch.
-Aim: **simple to use and effective**: a new Steam Deck owner gets from nothing to playing without reading a manual, and every
-failure says what to do next.
+Second full audit, 2026-11-13, of both apps as released (**Deckhand 4.6.1**, **Arcadia 0.1.4**) plus the fixes it led to
+(Arcadia 0.1.5 on its branch). The first audit (2026-11-12, Deckhand 4.3.1 / Arcadia 0.1.1) is in this file's history.
 
-How the evidence was gathered: static checks (flake8, mypy, shellcheck), test coverage, a security read of everything that
-downloads or runs something, and screenshots of both programs at 1280x800 (Deckhand rendered through its test harness; Arcadia
-built here and run under a virtual display with fake ROMs). **Nothing was tested on a real Deck or with a real controller.**
-That is the biggest gap and is Phase 1.
+Aim, unchanged: **simple to use and effective**. A new Steam Deck owner gets from nothing to playing without reading a
+manual, and every failure says what to do next.
+
+How the evidence was gathered:
+- Deckhand: the full test suite with coverage, flake8, a security read of everything that runs a command, downloads or
+  handles a password, and screenshots of every screen at 1280x800 in both looks.
+- Arcadia: its setup-tool tests, shellcheck and flake8 on the tools, an **AddressSanitizer build** driven through the
+  first-start screen, Settings (every section and its More options), Setup, the Emulators screen with a live install,
+  the tool window, the game list and quitting, plus a search of the C++ for the bug class of the crash reported from a
+  Deck this week.
+- A real crash report from a Steam Deck (a SIGSEGV in Arcadia 0.1.2), traced to source by disassembling the released
+  binary.
+
+**Still not tested on a real Deck with a controller** beyond that crash report. That remains the biggest gap.
 
 ---
 
 ## 1. Where things stand
 
-| | Deckhand | Arcadia |
+| | Deckhand 4.6.1 | Arcadia 0.1.4 (0.1.5 on its branch) |
 |---|---|---|
-| What it is | PyQt6 installer for Windows programs, stores, streaming, add-ons | ES-DE fork (C++) launcher for retro games, plus shell/Python setup tools |
-| Size | 9.5k lines Python, `core.py` alone 2.5k | ES-DE fork; our C++ is mostly the Setup screen (345 lines) and the menu components; 700 lines of setup tools |
-| Tests | 235 pass; **85% coverage** | 66 setup-tool checks pass; **no C++ tests** (CI only builds) |
-| Lint | flake8: 16 style nits. mypy: 42 warnings, mostly Qt "may be None" | shellcheck: 7 cosmetic warnings |
-| Releases | v4.3.1, automatic when the version file changes on `main` | v0.1.1 (0.1.2 on a branch), automatic the same way |
-| Look | Dusk and Cloud, shared design language | Cloud and Dusk, the reference for it |
+| Tests | 346 pass, **86 % coverage** (85 % at the last audit) | setup-tool checks all pass (about 120); **no C++ tests** |
+| Lint | flake8: 38 long lines, a few spacing nits (unused imports fixed) | shellcheck: 11 minor warnings; flake8: spacing only |
+| Types | mypy can't run: this PyQt6 build's stubs don't parse | n/a |
+| Memory safety | n/a | ASan: one use-after-free, **fixed** (below) |
+| Releases | automatic when `bin/deckhand.json` changes on `main` | automatic when `VERSION` changes on `main` |
 
-Weakest tested areas in Deckhand: Add-ons page 48%, gamepad input 53%, background threads 59%, `app.py` 74%.
+Weakest tested areas in Deckhand: the Add-ons page (53 %), gamepad input (55 %), background threads (59 %), `app.py` (73 %).
 
 ## 2. What the audit found
 
-### Security and trust (fix first)
-No shell injection patterns anywhere (`shell=True`, `eval`, `pickle` are absent). But downloads are checked unevenly:
-
-| Download | Checked how | Gap |
+### Fixed during this audit (on the branches, Arcadia as 0.1.5)
+| Finding | Effect | Fix |
 |---|---|---|
-| Deckhand self-update | SHA-256 from the same GitHub release | Fine for corruption; a hijacked repo defeats it (normal) |
-| GE-Proton | SHA-512 file from the release | Good |
-| Nexus Launcher | SHA-512 file **if present** | If the file is missing or can't be read, it silently falls back to "looks like an ELF program" |
-| Arcadia add-on | GitHub's SHA-256 digest **if present** | Same silent fallback |
-| Store installers, VC++/.NET fixes | HTTPS to the vendor | Vendors publish no checksums; accepted |
-| Decky installer script | Header contains "Decky" | Runs as-is (by design) |
-| **Arcadia self-update** | **Host allow-list and file size only** | **No checksum, and it then runs `install.sh` from the downloaded archive** |
+| **Crash from a Deck:** with no games, changing the colours (or theme) reloaded the views, which read a theme that had never been looked up (`sCurrentTheme`), then went to the first console of an empty list | Arcadia closed on a fresh install | released in 0.1.4: no-games reloads do nothing; the theme is looked up when needed |
+| More no-games crashes of the same kind: Collections (now in Look and feel's main list), "Group custom collections", the UI mode, `goToStart`, and the save step of every settings card all read the first console of an empty list | the same crash from other settings | settings are saved and nothing navigates when there are no consoles |
+| **Use-after-free:** quitting (or Steam closing Arcadia) while a Setup tool ran left the tool's thread writing into the freed tool window | crash or memory corruption on exit | the thread writes only to state it shares with the window |
+| **Nobody says there's an update:** the Deck that crashed was still on 0.1.2 | old bugs linger silently | Arcadia checks once a day in the background and says "Arcadia X is available"; a switch in Advanced turns it off |
+| Two-line notifications lost their line break when short | hints ran into the message | the popup measures each line |
+| Unused imports left from the sidebar removal, an ambiguous name | lint noise | removed |
 
-### Bugs and rough edges seen on screen
-- Arcadia's sorter files `.md` (Mega Drive) into a new `genesis/` folder even when the library already uses `megadrive/`, which splits a collection.
-- Arcadia's docs screenshots are stale: `setup.png` still shows 6 steps, the old "Sections" hint and clipped labels (confirmed by viewing it).
-- Body text in both apps looks bold because only Nunito SemiBold and heavier are bundled.
+### Open
+**Correctness and robustness**
+- Setup and the Emulators screen wait for their background status read when you leave them (it shells out to
+  `flatpak info` for each emulator). On a real Deck leaving at once could freeze the screen for a second or two. Use the
+  shared-state pattern the tool window now has.
+- No C++ tests: the ASan run that found the bugs above was manual. The no-games paths have no automated check.
+- New English strings (badges, Emulators screen, update notice, hints) aren't in the translation catalogs; other
+  languages show English for them.
 
-### Fixed during this audit (already done)
-Rail navigation in both apps (no L1/R1 on a vertical menu), clipped Setup labels and rail footer, Start/Back buttons hanging off the
-Covers card, truncated colour-scheme names, carousels repeating a game when a console has few, empty Installed page with no way
-forward, unreadable chosen-section icon, release build bug (`VERSION` variable renamed the AppImage).
+**Structural**
+- Deckhand still commits its 62 MB binary: the git pack is **183 MB** and grows by about 60 MB a release.
+- `deckhand/core.py` is still 2.5k lines mixing prefixes, Steam shortcuts, installing and discovery.
+- Arcadia's docs screenshots (`docs/screenshots`) predate the hub, dialogs, Emulators screen and simpler settings.
+- No lint in either CI.
 
-### Structural
-- Deckhand commits its 62 MB binary to git: **183 MB repo after 10 versions**, and GitHub already warns on every push.
-- `core.py` (2.5k lines) mixes prefixes, Steam shortcuts, installing and discovery.
-- Deckhand's binary bundles Qt, which needs glibc 2.34 or newer (measured on Qt's core library; Python itself needs only 2.17). Fine for current SteamOS; worth stating in the README.
-- No automated check that screens still fit (only the rail has one).
+**UX (seen on screen)**
+- Arcadia's game screen shows four "unknown" chips (year, genre, players, last played) on every game with no info yet.
+  The theme places them at fixed positions, so hiding the empty ones needs a layout change.
+- Arcadia's welcome screen: the background behind it and the help bar keep the old colours after a colour change.
+- Deckhand's Add-ons list shows Arcadia as "Installed" with no version and no "update available".
+
+### Security
+- Deckhand: no `shell=True`, `eval`, `pickle` or disabled TLS checks; every URL is HTTPS. The Decky admin password lives
+  in a private folder (mode 700, file 600) and is wiped afterwards. Add-on downloads need a published checksum (Nexus
+  SHA-512, Arcadia SHA-256 digest, GE-Proton SHA-512); store installers and Windows fixes have none to check (vendors
+  don't publish them).
+- Arcadia: Update Arcadia checks the AppImage and the extras archive against GitHub's SHA-256 digests; RetroArch cores
+  are checked against libretro's published CRC-32 (integrity, not authenticity: HTTPS from libretro is the trust).
+  Downloads go only to an allow-list of hosts.
 
 ---
 
@@ -61,68 +80,48 @@ forward, unreadable chosen-section icon, release build bug (`VERSION` variable r
 
 Each item says **why**, **size** (S under half a day, M a day or two, L a week) and **done when**.
 
-### Phase 0: ship what is finished (today)
-1. Merge Arcadia `claude/pensive-hamilton-urh2dr` (releases 0.1.2) and cut Deckhand 4.3.2 (rail footer fix). **S**
-2. Put both releases on a real Deck and run the checklist in Phase 1. **S**
+### Now
+1. **Release Arcadia 0.1.5** (the crash fixes and the update notice). **S**. Done when it's published and on the Deck.
+2. **Prove it on the Deck** with the checklist below, starting from a fresh install with no games. **S**
 
-### Phase 1: prove it on real hardware (before adding anything)
-Nothing so far ran on a Deck. Do this once, write down what breaks.
-- Fresh-Deck path: `get.sh` → Deckhand opens in Game Mode with a controller → Start checklist → install one real `.exe` → it appears in Steam and launches.
-- Arcadia path: install the AppImage from Deckhand → first start → Setup → sort a real ROM → launch it in an emulator.
-- Controller only, no touch, no keyboard: every screen reachable, every dialog dismissible with B.
-- Suspend and resume during a download and during an install.
-- Write `docs/DECK-TEST.md` (one page, tick boxes) so every release can be checked the same way. **M**, done when the checklist exists and its first run is recorded.
+### Next: keep it from breaking again
+1. **No-games smoke test in CI**: start Arcadia with an empty ROM folder under Xvfb (ASan build), change Colours,
+   Collections grouping and UI mode, quit. Fails on any sanitizer report. **M**
+2. Same harness for the tool window: quit while a tool runs. **S** (after 1)
+3. Setup and Emulators screens: don't block when left early (shared state, like the tool window). **S**
+4. Translation catalogs: add the new strings (`locale/`), keep English as the fallback. **S**
 
-### Phase 2: trust (security fixes above) — mostly done
-1. ~~**One verified-download helper**~~ Done for the add-ons: a published checksum is required (unreadable or not listing the file = stop), a release with none is said out loud, GE-Proton and Arcadia refuse to proceed without one. Left: the store installers and Windows fixes (vendors publish no checksums) and Decky's script. **M**
-2. ~~**Arcadia self-update verifies SHA-256**~~ Done in Arcadia 0.1.3 (merge pending), with tests that tamper with the AppImage and the extras archive. **S**
-3. ~~Print the version of everything downloaded into the install log.~~ Done for the add-ons: `logs/downloads.log`. **S**
-Done when: a corrupted or swapped download in tests is refused for every download type.
+### Then: cheaper to maintain
+1. **Stop committing Deckhand's binary**: publish it only as a release asset; `get.sh` and the updater read the latest
+   release (the updater reads `bin/deckhand.json` from `main` today). **M**
+2. flake8 and shellcheck in CI, warnings only at first; keep Deckhand's coverage at or above 86 %. **S**
+3. Tests for the Add-ons page actions (open, update, uninstall for Arcadia, Nexus, Decky). **M**
+4. Regenerate Arcadia's docs screenshots with a script. **M**
+5. Split `core.py` into `prefix`, `steam`, `installer` and `discovery`, without changing behaviour. **L**
 
-### Phase 3: correctness
-1. ~~Sorter: reuse an existing alias folder~~ Done in Arcadia 0.1.3 (merge pending). **S**
-2. Regenerate all Arcadia docs screenshots from the built program with a script (`scripts/screenshots.sh`, the recipe used in this audit) so they never go stale. **M**
-3. Fix the 16 flake8 nits and the few real mypy findings (a few places that call uninstall with a value mypy thinks may be `None`, probably false alarms but cheap to make explicit; one wrong type in the updater's source list). **S**
+### Polish
+1. Arcadia game screen: show the info chips only when there's information, or one "No info yet · Covers and info" chip.
+   **M**
+2. Deckhand Add-ons: Arcadia's version and "update available" (Deckhand knows the latest release). **S**
+3. Welcome screen: the background and help bar follow a colour change too. **S**
 
-### Phase 4: make it cheap to keep right
-1. **Stop committing the binary.** Publish only as release assets; `get.sh` and the updater read the latest release. Shrinks the repo and removes the push warning. Needs care: the updater currently reads `bin/deckhand.json` from `main`. **M**
-2. CI: add flake8 and shellcheck (warn only at first); keep coverage at or above 85%. **S**
-3. Add Deckhand UI tests for the Add-ons actions (Arcadia and Nexus open/update/uninstall), the weakest area. **M**
-4. A screen-fit test for each Deckhand page at 1280x800 (like the rail test) so clipped text fails CI. **M**
-5. Split `core.py` into `prefix`, `steam`, `installer`, `discovery` modules without changing behaviour; tests already cover most of it. **L**
-6. Arcadia: C++ is only built, never tested. Add the screenshot script to CI as an artifact so a visual regression is at least visible. **M**
+### Features (decide after the Deck test)
+Unchanged from the first audit: Proton version per program, installing several programs from a folder, ProtonDB
+ratings, SteamGridDB art by default, one Updates screen in Deckhand; Arcadia's cloud-save wizard and per-game emulator
+choice; a suite-wide update.
 
-### Phase 5: polish (simple and readable)
-1. Bundle Nunito Regular so body text is lighter (check the licence and size first). **S**
-2. One shared **look setting**: if Arcadia is on Dusk, Deckhand follows (and the reverse) via a tiny shared file. **S**
-3. A `--doctor` command in each app that prints what the app can see (Proton, runtime, Steam state, free space, versions) for bug reports. **S**
-4. Every error dialog ends with a next step ("Try again", "Open the log", "Use the normal install"). Audit the error strings. **M**
-5. Start checklist: show estimated time and size per step. **S**
+## 4. Deck checklist (one page, every release)
+- Fresh Deck, no games: install Arcadia from Deckhand (Add-ons). Open it. Change Colours, then Theme, then
+  Collections → Group custom collections. It must not close.
+- Setup → Emulators with a few ROMs: X installs what's needed (RetroArch and cores); a game then starts.
+- Start a Setup tool and close Arcadia from Steam (STEAM → Exit game) while it runs: no crash report.
+- Deckhand in Game Mode, controller only: every screen reachable; every dialog closes with B; notifications readable.
+- Suspend and resume during a download.
 
-### Phase 6: features, in order of value (decide after Phase 1)
-Deckhand
-1. **Pick the Proton version per program** (and remember it); the top fix when one game won't run. **M**
-2. **Install several programs in one go** from a folder. **M**
-3. Show a game's ProtonDB rating before installing. **M**
-4. Offer SteamGridDB art by default once a key is set. **S**
-5. Update the add-ons (Arcadia, Nexus, GE-Proton) from one "Updates" screen. **M**
-
-Arcadia
-1. **Cloud-save setup wizard** (rclone and Google Drive): the biggest friction in Setup today. **L**
-2. Per-game emulator choice in the game menu. **M**
-3. Scraper defaults that work without an account, and plain guidance for the account. **M**
-
-Suite
-1. Deckhand's Start checklist offers Arcadia's Setup status, and Arcadia's Setup shows Deckhand's. **S**
-2. One "Suite update": Deckhand updates itself and Arcadia in one step. **M**
-
-## 4. Principles (how we keep it simple)
-- Every screen readable at 1280x800, controller only. A screen that needs touch or a keyboard is a bug.
-- Defaults work; options are for the few who want them. If a step can be automatic and safe, it is.
+## 5. Principles
+- Every screen readable at 1280x800, controller only.
+- Defaults work; options are for the few who want them.
 - Every failure names the next action.
-- Nothing is called done until it ran on the real program: screenshots for UI, a faked server for downloads, and a real Deck for Phase 1.
+- Nothing is called done until it ran on the real program: screenshots for UI, a faked server for downloads, a
+  sanitizer build for Arcadia's C++, and a real Deck for the checklist.
 - Release by bumping the version on `main`; nothing else to remember.
-
-## 5. Recommended order
-Phase 0 → **Phase 1** → Phase 2 → Phase 3 → Phase 4 (items 1, 2, 3) → Phase 5 → Phase 6.
-If time is short: Phase 0, Phase 1, Phase 2 items 1 and 2, Phase 3 item 1. Those cover the real risks.
