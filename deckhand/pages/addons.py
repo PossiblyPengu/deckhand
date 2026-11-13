@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QProgressBar, QVBoxLay
 
 from .. import addons, artwork, core, proton, streaming
 from ..widgets import Sheet, label
-from .common import PAGE_MARGINS, Page, REMOVE_IN_STEAM, STEAM_STATE, logo_icon, on_choose, set_pill
+from .common import page_header, PAGE_MARGINS, Page, REMOVE_IN_STEAM, STEAM_STATE, logo_icon, on_choose, set_pill
 
 
 class AddonsPage(Page):
@@ -19,11 +19,8 @@ class AddonsPage(Page):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(*PAGE_MARGINS)
         lay.setSpacing(12)
-        lay.addWidget(label("Add-ons", "h1"))
-        lay.addWidget(label("Arcadia, Deckhand's sister app for retro games, and popular Deck add-ons and tools, from "
-                            "their official sources. Apps from Flathub are installed the way Discover does it, so Discover keeps them up "
-                            "to date.",
-                            "dim"))
+        page_header(lay, "addons", "Add-ons",
+                    "Arcadia for retro games, and popular Deck add-ons and tools, from their official sources.")
         self.list = QListWidget()
         self.list.setIconSize(QSize(44, 44))
         on_choose(self.list, self._activate)

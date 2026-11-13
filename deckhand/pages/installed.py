@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import QHBoxLayout, QListWidget, QListWidgetItem, QProgress
 
 from .. import artwork, core, fixes, saves
 from ..widgets import Sheet, button, label
-from .common import KIND_LABEL, PAGE_MARGINS, Page, STEAM_STATE, ago, badge_icon, glyph_icon, on_choose, set_pill
+from .common import page_header, KIND_LABEL, PAGE_MARGINS, Page, STEAM_STATE, ago, badge_icon, glyph_icon, on_choose, set_pill
 from .threads import SizesThread
 
 
@@ -24,10 +24,8 @@ class InstalledPage(Page):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(*PAGE_MARGINS)
         lay.setSpacing(12)
-        lay.addWidget(label("Installed programs", "h1"))
-        lay.addWidget(label("Pick a program to fix it, back up its saves, uninstall it or add it back to Steam. "
-                            "Streaming services, game stores and add-ons you added are here too. "
-                            "You play them from your Steam library.", "dim"))
+        page_header(lay, "installed", "Installed programs",
+                    "Pick one to fix it, back up its saves, uninstall it or add it back to Steam.")
         self.list = QListWidget()
         self.list.setIconSize(QSize(44, 44))
         on_choose(self.list, self._activate)

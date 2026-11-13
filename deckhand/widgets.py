@@ -183,8 +183,9 @@ class Tile(QPushButton):
         clip.addRect(QRectF(art.x(), art.y() + 20, art.width(), art.height() - 20))
         p.save()
         p.setClipPath(clip)
-        bg = self.color if not self.glyph else QColor(theme.BG_RAISED)
-        p.fillRect(art, bg.darker(170))
+        # Artwork sits on a darkened version of its own colour; a glyph tile (Browse files) on the soft accent, which
+        # reads on both looks (a darkened white would be a muddy grey in Cloud).
+        p.fillRect(art, self.color.darker(170) if not self.glyph else QColor(theme.ACCENT_SOFT))
         p.restore()
         side = art.height() * 0.62
         icon_rect = QRectF(art.center().x() - side / 2, art.center().y() - side / 2, side, side)
@@ -262,17 +263,18 @@ def tone_for(title: str, buttons: tuple[str, ...] = (), danger: tuple[int, ...] 
 class Badge(QWidget):
     """A pastel disc with a glyph: says at a glance what a dialog or notification is about."""
 
-    def __init__(self, tone: str = "info", size: int = 64, glyph: str = ""):
+    def __init__(self, tone: str = "info", size: int = 64, glyph: str = "", color: str = ""):
         super().__init__()
         self.tone = tone if tone in TONES else "info"
         self.glyph = glyph or TONES[self.tone][1]
+        self.color = color or TONES[self.tone][0]
         self.setFixedSize(size, size)
 
     def paintEvent(self, _e) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(TONES[self.tone][0]))
+        p.setBrush(QColor(self.color))
         r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
         p.drawEllipse(r)
         inset = r.width() * 0.26

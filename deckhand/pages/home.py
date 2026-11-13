@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import QGridLayout, QHBoxLayout, QScrollArea, QVBoxLayout, 
 
 from .. import artwork, core
 from ..widgets import Tile, button, label
-from .common import COLUMNS, MAX_FOUND, PAGE_MARGINS, Page, ago
+from .common import page_header, COLUMNS, MAX_FOUND, PAGE_MARGINS, Page, ago
 
 
 class HomePage(Page):
@@ -27,9 +27,8 @@ class HomePage(Page):
         lay = QVBoxLayout(content)
         lay.setContentsMargins(*PAGE_MARGINS)
         lay.setSpacing(12)
-        lay.addWidget(label("Install a Windows program", "h1"))
-        lay.addWidget(label("Pick a setup file. Deckhand installs it and adds the program to your "
-                            "Steam library.", "dim"))
+        page_header(lay, "install", "Install a Windows program",
+                    "Pick a setup file: Deckhand installs it and adds it to your Steam library.")
         self.add_banner(lay)
         lay.addSpacing(10)
         self.section = label("", "section")

@@ -1730,6 +1730,17 @@ class TestWindow(Env):
             self.assertLessEqual(self.win.minimumSizeHint().width(), 1280, type(page).__name__)
             self.assertLessEqual(self.win.width(), 1280, type(page).__name__)
 
+    def test_each_section_page_wears_its_home_screen_badge(self):
+        from deckhand import theme
+        from deckhand.pages.hub import SECTIONS
+        from deckhand.widgets import Badge
+        pages = {"start": self.win.start, "install": self.win.home, "stores": self.win.stores,
+                 "stream": self.win.streaming, "addons": self.win.addons, "installed": self.win.installed}
+        for i, (key, _title, glyph, _detail) in enumerate(SECTIONS):
+            badge = pages[key].findChild(Badge, f"badge-{key}")
+            self.assertIsNotNone(badge, key)
+            self.assertEqual((badge.glyph, badge.color), (glyph, theme.HUB_TINTS[i]), key)  # same as its card
+
     def test_there_is_no_sidebar(self):
         from PyQt6.QtWidgets import QFrame
         self.assertIsNone(self.win.findChild(QFrame, "rail"))

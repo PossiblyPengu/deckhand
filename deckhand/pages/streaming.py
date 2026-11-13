@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QProgressBar, QVBoxLay
 
 from .. import betterxcloud, core, streaming
 from ..widgets import Sheet, label
-from .common import PAGE_MARGINS, Page, STEAM_STATE, logo_icon, on_choose, set_pill
+from .common import page_header, PAGE_MARGINS, Page, STEAM_STATE, logo_icon, on_choose, set_pill
 
 
 class StreamingPage(Page):
@@ -19,10 +19,8 @@ class StreamingPage(Page):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(*PAGE_MARGINS)
         lay.setSpacing(12)
-        lay.addWidget(label("Game streaming", "h1"))
-        lay.addWidget(label("Pick a service to add it to Steam. Apps it needs come from Flathub, just like in "
-                            "Discover, so Discover keeps them up to date. Sign in the first time you open it; leave "
-                            "with STEAM → Exit game.", "dim"))
+        page_header(lay, "stream", "Game streaming",
+                    "Add a service to Steam and sign in the first time you open it. Leave with STEAM → Exit game.")
         self.on_deck = label("Checking what's installed…", "muted")
         lay.addWidget(self.on_deck)
         self.list = QListWidget()

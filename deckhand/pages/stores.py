@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QProgressBar, QVBoxLay
 
 from .. import core, stores, streaming
 from ..widgets import Sheet, label
-from .common import PAGE_MARGINS, Page, STEAM_STATE, logo_icon, on_choose, set_pill
+from .common import page_header, PAGE_MARGINS, Page, STEAM_STATE, logo_icon, on_choose, set_pill
 
 
 class StoresPage(Page):
@@ -21,11 +21,8 @@ class StoresPage(Page):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(*PAGE_MARGINS)
         lay.setSpacing(12)
-        lay.addWidget(label("Game stores", "h1"))
-        lay.addWidget(label("Pick a store to add it to Steam, then sign in and play from there. Heroic and itch are made "
-                            "for Linux; the rest are Windows apps run with Proton. Games with anti-cheat that blocks "
-                            "Linux won't run.",
-                            "dim"))
+        page_header(lay, "stores", "Game stores",
+                    "Add a store to Steam, sign in once, then play from your library. Games whose anti-cheat blocks Linux won't run.")
         self.list = QListWidget()
         self.list.setIconSize(QSize(44, 44))
         on_choose(self.list, self._activate)

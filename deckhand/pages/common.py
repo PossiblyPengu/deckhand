@@ -143,6 +143,29 @@ def pixmap(img: QImage, w: int, h: int) -> QPixmap:
                                         Qt.TransformationMode.SmoothTransformation))
 
 
+def page_header(lay: QVBoxLayout, section: str, title: str, subtitle: str = "") -> None:
+    """A section page's heading: the section's badge (the same colour and picture as its card on the home screen), the
+    title and one line about it, so each page reads as the card you chose."""
+    from ..widgets import Badge, label
+    from .hub import SECTIONS
+
+    keys = [k for k, *_ in SECTIONS]
+    row = QHBoxLayout()
+    row.setSpacing(20)
+    if section in keys:
+        i = keys.index(section)
+        badge = Badge(size=60, glyph=SECTIONS[i][2], color=theme.HUB_TINTS[i % len(theme.HUB_TINTS)])
+        badge.setObjectName(f"badge-{section}")
+        row.addWidget(badge, 0, Qt.AlignmentFlag.AlignVCenter)
+    words = QVBoxLayout()
+    words.setSpacing(2)
+    words.addWidget(label(title, "h1"))
+    if subtitle:
+        words.addWidget(label(subtitle, "dim"))
+    row.addLayout(words, 1)
+    lay.addLayout(row)
+
+
 class Page(QWidget):
     title = ""
 

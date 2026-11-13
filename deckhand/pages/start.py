@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import QHBoxLayout, QListWidget, QListWidgetItem, QVBoxLayo
 
 from .. import start, theme
 from ..widgets import Ring, label
-from .common import PAGE_MARGINS, Page, glyph_icon, on_choose, set_pill
+from .common import page_header, PAGE_MARGINS, Page, glyph_icon, on_choose, set_pill
 
 
 class StartPage(Page):
@@ -19,9 +19,8 @@ class StartPage(Page):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(*PAGE_MARGINS)
         lay.setSpacing(12)
-        lay.addWidget(label("Get started", "h1"))
-        lay.addWidget(label("What a new Steam Deck needs, in one list. Deckhand sets up Windows games, game stores "
-                            "and streaming; its sister app Arcadia does retro games. Pick a step to do it.", "dim"))
+        page_header(lay, "start", "Get started",
+                    "What a new Steam Deck needs, top to bottom. Pick a step to do it.")
         self.add_banner(lay)
         lay.addSpacing(6)
         row = QHBoxLayout()
