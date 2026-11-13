@@ -10,6 +10,7 @@ Where each one comes from (256 px at most; square ones had their corners rounded
 
 | Logo | Source |
 | :--- | :--- |
+| `arcadia` | Arcadia's own mark (`es-app/assets/arcadia.svg` in the Arcadia repository), the sister of Deckhand's "d." |
 | `xbox-cloud` | Xbox Cloud Gaming's own web app icon (the manifest of xbox.com/play) |
 | `geforce-now` | The NVIDIA mark from [Simple Icons](https://simpleicons.org) (CC0), in NVIDIA green on a dark tile |
 | `amazon-luna` | Amazon Luna's own icon (luna.amazon.com) |
