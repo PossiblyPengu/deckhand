@@ -747,7 +747,7 @@ class TestWindow(Env):
         if installed:
             loader.parent.mkdir(parents=True)
             loader.write_text("")
-        calls, typed = [], []
+        calls = []
 
         def fake_run(script, option, password, temporary, on_event=None, log=None):
             calls.append((option, password, temporary))

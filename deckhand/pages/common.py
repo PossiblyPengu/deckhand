@@ -182,7 +182,7 @@ class Page(QWidget):
 
     def with_paging(self, hints: list[tuple[str, str, Callable]]) -> list[tuple[str, str, Callable]]:
         """`hints`, plus "L1/R1 Page" (before the last one, ☰ Menu) when this page has a list long enough to need it."""
-        if not any(l.isVisible() and l.count() > 6 for l in self.findChildren(QListWidget)):
+        if not any(lst.isVisible() and lst.count() > 6 for lst in self.findChildren(QListWidget)):
             return hints
         return [*hints[:-1], ("LR", "Page", lambda: self.win.page_list(1)), hints[-1]]
 

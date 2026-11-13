@@ -12,18 +12,14 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from PyQt6.QtCore import QSize, QThread, QTimer, QUrl, Qt
+from PyQt6.QtCore import QThread, QTimer, QUrl, Qt
 from PyQt6.QtGui import QDesktopServices, QImage
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtWidgets import (
     QApplication,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
     QLineEdit,
     QListWidget,
     QMainWindow,
-    QPushButton,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -34,9 +30,9 @@ from .nav import Nav
 from .pages import (AddonsPage, BrowserPage, DonePage, HomePage, HubPage, InstallPage, InstalledPage,
                     PickPage, StartPage, StoresPage, StreamingPage, UpdatePage)
 from .pages.common import (Page, REMOVE_IN_STEAM, ago, app_icon, close_steam_first,
-                           count_names, ensure_app_icon, glyph_icon, logo_icon, select_row)
+                           count_names, ensure_app_icon, logo_icon, select_row)
 from .pages.threads import InstallThread, UpdateCheckThread, UpdateDownloadThread, Worker
-from .widgets import CardDelegate, HintBar, Sheet, Toast, breakable, label
+from .widgets import CardDelegate, HintBar, Sheet, Toast, breakable
 
 __all__ = ["MainWindow", "SingleInstance", "main", "app_icon", "ensure_app_icon", "logo_icon",
            "select_row"]
