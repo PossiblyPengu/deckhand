@@ -28,7 +28,7 @@ How the evidence was gathered:
 | Lint | flake8: 38 long lines, a few spacing nits (unused imports fixed) | shellcheck: 11 minor warnings; flake8: spacing only |
 | Types | mypy can't run: this PyQt6 build's stubs don't parse | n/a |
 | Memory safety | n/a | ASan: one use-after-free, **fixed** (below) |
-| Releases | automatic when `bin/deckhand.json` changes on `main` | automatic when `VERSION` changes on `main` |
+| Releases | built by GitHub and published when `VERSION` changes on `main` | the same |
 
 Weakest tested areas in Deckhand: the Add-ons page (53 %), gamepad input (55 %), background threads (59 %), `app.py` (73 %).
 
@@ -92,8 +92,8 @@ Each item says **why**, **size** (S under half a day, M a day or two, L a week) 
 4. Translation catalogs: add the new strings (`locale/`), keep English as the fallback. **S**
 
 ### Then: cheaper to maintain
-1. **Stop committing Deckhand's binary**: publish it only as a release asset; `get.sh` and the updater read the latest
-   release (the updater reads `bin/deckhand.json` from `main` today). **M**
+1. ~~**Stop committing Deckhand's binary**~~ **Done:** GitHub builds it and publishes it only as a release asset, when
+   `VERSION` changes on `main`, the same way as Arcadia; `get.sh` and the updater read the latest release. **M**
 2. flake8 and shellcheck in CI, warnings only at first; keep Deckhand's coverage at or above 86 %. **S**
 3. Tests for the Add-ons page actions (open, update, uninstall for Arcadia, Nexus, Decky). **M**
 4. Regenerate Arcadia's docs screenshots with a script. **M**

@@ -1,5 +1,0 @@
-{
-  "version": "4.6.1",
-  "sha256": "d673ca1d0e3abcfbf2b98bf8939c4c800f2f7f452c07d09b23efa496743b57db",
-  "notes": "The home screen's cards fill the screen, and each section page wears the same coloured badge as its card. Dialogs and notifications are clearer: a badge says what each is about (a question, something done, a problem, removing something), dialogs show the controller's A and B, and notifications are cards that stack above the hint bar. The Start checklist is in the order a new Deck needs it (Decky is optional). Arcadia's new logo."
-}

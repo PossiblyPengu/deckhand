@@ -1,7 +1,8 @@
 name: CI
 
 on:
-  push:          # every branch, so work in progress is tested too
+  push:          # every branch but main, so work in progress is tested too (main is tested by release.yml)
+    branches-ignore: [main]
   pull_request:
     branches: [main, master]
 

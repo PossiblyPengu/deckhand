@@ -215,10 +215,9 @@ The tests use a fake Proton and fake Steam install, so they run anywhere, includ
 `libegl1 libgl1 libglib2.0-0 libxkbcommon0 libdbus-1-3`. `DECKHAND_NO_GAMEPAD=1` turns off controller input;
 `DECKHAND_FULLSCREEN=1` forces full screen outside Game Mode.
 
-**Shipping a new version:** bump `__version__` in `deckhand/__init__.py`, then run
-`scripts/publish_bin.sh "one line of release notes"` and commit `bin/`. That rebuilds the binary and writes
-`bin/deckhand.json`, which `get.sh` and the in-app updater read (from `main`, then the development branch). Once that
-reaches `main`, the Release workflow runs the tests and publishes GitHub release `v<version>` with the same binary and
-those notes (it can also be run from the Actions tab); the updater checks releases too and takes whichever version is
-newest.
+**Releasing** works the same way as Arcadia's: change the version in `VERSION`, write what changed in
+`RELEASE_NOTES.md`, and push to `main`. The Release workflow tests and builds every push to `main` (the build is in
+the run's Artifacts), and when `v<version>` isn't released yet it publishes it, with the app and its checksum and those
+notes. `get.sh` installs the latest release and Deckhand updates itself from it. It can also be run from the Actions
+tab, to only build.
 `DECKHAND_UPDATE_BASE=<url of a folder with deckhand.json>` points the updater elsewhere for testing.

@@ -1,8 +1,7 @@
-"""Self-update for the downloaded (single-file) Deckhand app.
+"""Self-update for the downloaded Deckhand app.
 
-Looks for a newer version in two places, like get.sh: the latest GitHub release, and the
-prebuilt binary kept in the repo (bin/deckhand.json on main, then the development branch).
-Downloads are verified against their SHA-256, swapped in atomically, and the app restarts
+Looks for a newer version where get.sh gets it: the latest GitHub release, which the release workflow builds from
+main when VERSION changes. Downloads are verified against their SHA-256, swapped in atomically, and the app restarts
 into the new file.
 """
 from __future__ import annotations
@@ -21,12 +20,10 @@ from pathlib import Path
 from typing import Callable
 
 REPO = "PossiblyPengu/deckhand"
-BRANCHES = ("main", "claude/steam-deck-windows-install-mkeivr")
 ASSET = "deckhand-linux-x86_64"
 MANIFEST = "deckhand.json"
 API = f"https://api.github.com/repos/{REPO}"
 RELEASE_API = f"{API}/releases/latest"
-RAW = f"https://raw.githubusercontent.com/{REPO}"
 USER_AGENT = "Deckhand-updater"
 
 
@@ -107,7 +104,7 @@ def from_release(api_url: str = RELEASE_API) -> Update | None:
 
 
 def from_manifest(base_url: str) -> Update | None:
-    """bin/deckhand.json next to a prebuilt binary: {"version", "sha256", "notes"?}."""
+    """A folder with deckhand.json ({"version", "sha256", "notes"?}) next to the app (DECKHAND_UPDATE_BASE)."""
     # The query defeats raw.githubusercontent's ~5 minute cache (including cached 404s).
     data = json.loads(fetch(f"{base_url}/{MANIFEST}?t={int(time.time())}"))
     # Same for the binary: a cached older copy would fail the checksum right after a release.
@@ -115,29 +112,11 @@ def from_manifest(base_url: str) -> Update | None:
                   str(data.get("notes", ""))[:600], base_url)
 
 
-def from_branch(branch: str, api: str = API, raw: str = RAW) -> Update | None:
-    """bin/deckhand.json on a branch, read at the branch's current commit.
-
-    raw.githubusercontent caches what a branch name points to for several minutes (query strings
-    don't help), so a fresh release could show up stale or with a mismatched binary. Asking the
-    API for the branch's commit and reading files by commit id is never stale. If the API is
-    unavailable (e.g. rate-limited), the branch name is used as before.
-    """
-    base = f"{raw}/{branch}/bin"
-    try:
-        sha = fetch(f"{api}/commits/{branch}", headers={"Accept": "application/vnd.github.sha"}).decode().strip()
-        if re.fullmatch(r"[0-9a-f]{40}", sha):
-            base = f"{raw}/{sha}/bin"
-    except Exception:  # noqa: BLE001 — fall back to the branch name
-        pass
-    return from_manifest(base)
-
-
 def default_sources() -> list[Callable[[], Update | None]]:
     override = os.environ.get("DECKHAND_UPDATE_BASE")  # for testing: a folder URL with deckhand.json
     if override:
         return [lambda: from_manifest(override.rstrip("/"))]
-    return [from_release] + [lambda b=b: from_branch(b) for b in BRANCHES]
+    return [from_release]
 
 
 def check(current: str, sources: list[Callable[[], Update | None]] | None = None,

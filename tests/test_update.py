@@ -88,18 +88,9 @@ class UpdateTests(unittest.TestCase):
         self.assertIsNone(updater.check("2.1.0", [broken, offline], errors=errors))
         self.assertEqual(len(errors), 2)  # "couldn't check", not "up to date"
 
-    def test_branch_is_read_at_its_current_commit(self):
-        sha = "ab" * 20
-        (self.web / "api/commits/claude").mkdir(parents=True)
-        (self.web / "api/commits/claude/dev").write_text(sha)  # a branch name with a slash
-        self.publish_branch(sha, "2.6.0")          # what the branch really holds now
-        self.publish_branch("claude/dev", "2.5.0")  # a stale cached view of the branch name
-        u = updater.from_branch("claude/dev", api=f"{self.server.url}/api", raw=self.server.url)
-        self.assertEqual(u.version, "2.6.0")
-        self.assertIn(f"/{sha}/bin/", u.url)
-        # API unavailable (rate-limited, offline): fall back to the branch name.
-        u = updater.from_branch("claude/dev", api=f"{self.server.url}/nope", raw=self.server.url)
-        self.assertEqual(u.version, "2.5.0")
+    def test_the_latest_release_is_the_one_place_updates_come_from(self):
+        os.environ.pop("DECKHAND_UPDATE_BASE", None)
+        self.assertEqual(updater.default_sources(), [updater.from_release])
 
     def test_release_source(self):
         u = updater.check("2.1.0", [self.publish_release("v2.5.0")])

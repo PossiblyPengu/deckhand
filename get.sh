@@ -8,8 +8,9 @@
 set -euo pipefail
 
 REPO="PossiblyPengu/deckhand"
-# main once merged; the development branch until then. DECKHAND_BRANCH picks one explicitly.
-BRANCHES="${DECKHAND_BRANCH:-main claude/steam-deck-windows-install-mkeivr}"
+# The latest release: what GitHub's release workflow built from main (see .github/workflows/release.yml).
+# DECKHAND_RELEASE_URL points at another folder with the same two files (for testing).
+BASE="${DECKHAND_RELEASE_URL:-https://github.com/$REPO/releases/latest/download}"
 ASSET="deckhand-linux-x86_64"
 BIN_DIR="$HOME/.local/bin"
 DESKTOP_DIR="$HOME/.local/share/applications"
@@ -18,24 +19,9 @@ trap 'rm -rf "$TMP"' EXIT
 
 echo "=== Deckhand Installer ==="
 
-echo "Looking for the newest Deckhand…"
-BEST_URL="" BEST_VER=""
-for BRANCH in $BRANCHES; do
-  # Read files at the branch's current commit: raw.githubusercontent caches branch names for minutes.
-  REF=$(curl -fsSL -H "Accept: application/vnd.github.sha" "https://api.github.com/repos/$REPO/commits/$BRANCH" 2>/dev/null || true)
-  [[ "$REF" =~ ^[0-9a-f]{40}$ ]] || REF="$BRANCH"
-  URL="https://raw.githubusercontent.com/$REPO/$REF/bin"
-  VER=$(curl -fsSL "$URL/deckhand.json" 2>/dev/null | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' | head -n 1 || true)
-  [ -n "$VER" ] || continue
-  if [ -z "$BEST_VER" ] || [ "$(printf '%s\n%s\n' "$BEST_VER" "$VER" | sort -V | tail -n 1)" = "$VER" ] && [ "$VER" != "$BEST_VER" ]; then
-    BEST_URL="$URL" BEST_VER="$VER"
-  fi
-done
-[ -n "$BEST_URL" ] || { echo "Couldn't reach GitHub — check your internet connection."; exit 1; }
-
-echo "Downloading Deckhand $BEST_VER…"
-curl -fsSL -o "$TMP/$ASSET.sha256" "$BEST_URL/$ASSET.sha256"
-curl -fL --progress-bar -o "$TMP/$ASSET" "$BEST_URL/$ASSET"
+echo "Downloading the latest Deckhand…"
+curl -fsSL -o "$TMP/$ASSET.sha256" "$BASE/$ASSET.sha256" || { echo "Couldn't reach GitHub — check your internet connection."; exit 1; }
+curl -fL --progress-bar -o "$TMP/$ASSET" "$BASE/$ASSET"
 [ -s "$TMP/$ASSET" ] || { echo "Couldn't download Deckhand — check your internet connection."; exit 1; }
 
 echo "Verifying checksum…"
