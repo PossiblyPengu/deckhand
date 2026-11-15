@@ -25,6 +25,13 @@ case "$1" in
         grep -qxF -- "$2 ${@: -1}" "$db.scope" 2>/dev/null && exit 0
         [ "$2" = --user ] && grep -qx "${@: -1}" "$db" 2>/dev/null && ! grep -qF -- " ${@: -1}" "$db.scope" 2>/dev/null && exit 0
         exit 1 ;;
+  override) if [[ " $* " == *" --show "* ]]; then
+              f="$(grep "^${@: -1} " "$db.overrides" 2>/dev/null | cut -d' ' -f2- | tr '\n' ';')"
+              [ -n "$f" ] && printf '[Context]\nfilesystems=%s\n' "$f"
+            else
+              for a in "$@"; do case "$a" in --filesystem=*) echo "${@: -1} ${a#--filesystem=}" >> "$db.overrides";; esac; done
+              if [[ " $* " == *" --reset "* ]]; then grep -v "^${@: -1} " "$db.overrides" > "$db.ov.tmp" 2>/dev/null; mv "$db.ov.tmp" "$db.overrides"; fi
+            fi ;;
   uninstall) grep -qx "${@: -1}" "$db" 2>/dev/null || { echo "error: ${@: -1} not installed"; exit 1; }
              grep -vx "${@: -1}" "$db" > "$db.tmp"; mv "$db.tmp" "$db"
              grep -vxF -- "$2 ${@: -1}" "$db.scope" > "$db.tmp" 2>/dev/null; mv "$db.tmp" "$db.scope" 2>/dev/null || true ;;
@@ -379,3 +386,37 @@ class TestStreamingSignInAndLauncher(FlatpakEnv):
         self.assertEqual(len(installs), 1)
         self.assertIn("com.microsoft.Edge", installs[0])
         self.assertIn("B=com.microsoft.Edge", Path(app.launcher).read_text())
+
+
+class TestAppAccess(FlatpakEnv):
+    """Apps from Flathub get what they need on a Deck as they install (streaming.APP_ACCESS)."""
+
+    def overrides(self, app_id):
+        f = self.flatpak_db.with_name(self.flatpak_db.name + ".overrides")
+        return [line.split(" ", 1)[1] for line in (f.read_text().splitlines() if f.exists() else [])
+                if line.startswith(app_id + " ")]
+
+    def test_protontricks_can_see_the_sd_card_as_it_installs(self):
+        streaming.install_app("com.github.Matoking.protontricks")
+        self.assertEqual(self.overrides("com.github.Matoking.protontricks"), ["/run/media"])
+        self.assertFalse(streaming.give_access("com.github.Matoking.protontricks"))  # (given once, not again)
+        self.assertEqual(self.overrides("com.github.Matoking.protontricks"), ["/run/media"])
+
+    def test_one_installed_earlier_gets_it_when_deckhand_next_looks(self):
+        self.flatpak_db.write_text("com.usebottles.bottles\nio.github.unknownskl.greenlight\n")
+        self.assertIn("com.usebottles.bottles", streaming.installed_and_set_up())
+        self.assertEqual(self.overrides("com.usebottles.bottles"), ["/run/media"])
+        self.assertEqual(self.overrides("io.github.unknownskl.greenlight"), [])  # (needs nothing more)
+
+    def test_an_app_with_nothing_to_add_is_left_alone(self):
+        self.assertFalse(streaming.give_access("com.discordapp.Discord"))
+        self.assertFalse(any(c.startswith("override") for c in self.calls()))
+
+    def test_uninstalling_takes_away_what_deckhand_gave_and_nothing_you_set(self):
+        streaming.install_app("io.itch.itch")
+        streaming.uninstall_app("io.itch.itch")
+        self.assertEqual(self.overrides("io.itch.itch"), [])
+        streaming.install_app("com.usebottles.bottles")
+        subprocess.run(["flatpak", "override", "--user", "--filesystem=/srv/games", "com.usebottles.bottles"])  # yours
+        streaming.uninstall_app("com.usebottles.bottles")
+        self.assertEqual(sorted(self.overrides("com.usebottles.bottles")), ["/run/media", "/srv/games"])

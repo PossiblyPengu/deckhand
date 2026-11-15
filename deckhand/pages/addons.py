@@ -584,7 +584,7 @@ class AddonsPage(AddonActions, Page):
                 self.list.addItem(self._addon_item(addons.addon(key.split(":", 1)[1])))
         keep_row(self.list, row)
         if self.installed is None and not self.win.busy_with_quietly("addon-flatpaks"):
-            self.win.run_worker(lambda _s: streaming.installed_apps(), self._got_installed, lambda _m: None,
+            self.win.run_worker(lambda _s: streaming.installed_and_set_up(), self._got_installed, lambda _m: None,
                                 kind="addon-flatpaks")
 
     def _got_installed(self, apps: set[str]) -> None:

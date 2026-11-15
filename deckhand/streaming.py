@@ -360,6 +360,7 @@ def install_app(app_id: str, log: Callable[[str], None] = lambda s: None,
         rc, tail = _run_flatpak([exe, "install", "--system", "-y", "--noninteractive", "flathub", app_id], log,
                                 progress)
         if rc == 0:
+            give_access(app_id)
             return "system"
         log("Installing for the whole Deck wasn't allowed; installing for this user instead.")
     subprocess.run([exe, "remote-add", "--user", "--if-not-exists", "flathub", FLATHUB], env=core.clean_env(),
@@ -367,6 +368,7 @@ def install_app(app_id: str, log: Callable[[str], None] = lambda s: None,
     rc, user_tail = _run_flatpak([exe, "install", "--user", "-y", "--noninteractive", "flathub", app_id], log,
                                  progress)
     if rc == 0:
+        give_access(app_id)
         return "user"
     raise core.InstallError(f"Couldn't install {app_id} from Flathub (is the Deck online?).\n\n"
                             + "\n".join(user_tail or tail))
@@ -391,6 +393,10 @@ def uninstall_app(app_id: str) -> None:
     if errors or not found:
         raise core.InstallError(f"Couldn't uninstall {app_name(app_id)}. Remove it in Discover (Desktop Mode) "
                                 "instead.\n\n" + "\n".join(errors))
+    # What Deckhand gave it (APP_ACCESS) goes too, when that's all there is (access you set yourself stays).
+    granted = _granted(exe, app_id)
+    if granted and granted <= set(APP_ACCESS.get(app_id, ())):
+        subprocess.run([exe, "override", "--user", "--reset", app_id], env=env, capture_output=True, timeout=60)
 
 
 def open_app(app_id: str) -> None:
@@ -399,12 +405,64 @@ def open_app(app_id: str) -> None:
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
 
 
-def allow_controllers(app_id: str) -> None:
-    """Let a browser see game controllers (the Gamepad API needs udev's device info)."""
+# What an app installed from Flathub needs, beyond what its own package allows, to work on a Steam Deck. Given right
+# after it installs (and to one installed earlier, when Deckhand next looks: see give_access_to_installed).
+SD_CARD = "/run/media"  # where SteamOS mounts SD cards and drives
+APP_ACCESS = {
+    # Games on an SD card: Protontricks fixes them (its own instructions add this by hand), Bottles and itch run and
+    # install them there.
+    "com.github.Matoking.protontricks": (SD_CARD,),
+    "com.usebottles.bottles": (SD_CARD,),
+    "io.itch.itch": (SD_CARD,),
+    # Browsers for cloud gaming: game controllers (the Gamepad API needs udev's device info).
+    CHROME: ("/run/udev:ro",),
+    EDGE: ("/run/udev:ro",),
+    CHROMIUM: ("/run/udev:ro",),
+}
+
+
+def _granted(exe: str, app_id: str) -> set[str]:
+    try:
+        out = subprocess.run([exe, "override", "--user", "--show", app_id], capture_output=True, text=True,
+                             timeout=30, env=core.clean_env()).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    m = re.search(r"^filesystems=(.*)$", out, re.M)
+    return {f for f in (m.group(1).split(";") if m else []) if f}
+
+
+def give_access(app_id: str) -> bool:
+    """Give an app what APP_ACCESS says it needs (once: what it has already is left). True if anything was added."""
     exe = _flatpak()
-    if exe:
-        subprocess.run([exe, "override", "--user", "--filesystem=/run/udev:ro", app_id], env=core.clean_env(),
-                       capture_output=True, timeout=60)
+    wanted = APP_ACCESS.get(app_id, ())
+    if not exe or not wanted:
+        return False
+    missing = [w for w in wanted if w not in _granted(exe, app_id)]
+    if not missing:
+        return False
+    try:
+        subprocess.run([exe, "override", "--user", *[f"--filesystem={w}" for w in missing], app_id],
+                       env=core.clean_env(), capture_output=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return True
+
+
+def give_access_to_installed(installed: set[str]) -> list[str]:
+    """APP_ACCESS for apps installed before Deckhand gave it as they install. Returns the ones given something."""
+    return [a for a in APP_ACCESS if a in installed and give_access(a)]
+
+
+def installed_and_set_up() -> set[str]:
+    """installed_apps(), after giving any of them what APP_ACCESS says they still need (run in the background)."""
+    apps = installed_apps()
+    give_access_to_installed(apps)
+    return apps
+
+
+def allow_controllers(app_id: str) -> None:
+    """Let a browser see game controllers (see APP_ACCESS)."""
+    give_access(app_id)
 
 
 # ── Launchers and the Steam side ─────────────────────────────────────────────

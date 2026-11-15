@@ -116,8 +116,9 @@ def spots(store_: Store, entries: list[tuple[Path, dict]], launchers: Path) -> l
 
 
 def detect() -> set[str]:
-    """Flatpak apps installed, plus "local:<store id>" for a store app installed another way."""
-    return streaming.detect(streaming.installed_apps(), [s.service for s in STORES if not s.is_windows])
+    """Flatpak apps installed (each given what it still needs: streaming.APP_ACCESS), plus "local:<store id>" for a
+    store app installed another way."""
+    return streaming.detect(streaming.installed_and_set_up(), [s.service for s in STORES if not s.is_windows])
 
 
 def set_up(store_: Store, paths: core.Paths, status: Callable[[str], None] = lambda s: None,
