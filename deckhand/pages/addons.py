@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QProgressBar, QVBoxLay
 
 from .. import addons, artwork, core, proton, streaming
 from ..widgets import Sheet, label
-from .common import (page_header, PAGE_MARGINS, Page, REMOVE_IN_STEAM, STEAM_STATE, add_heading, keep_row,
+from .common import (page_header, PAGE_MARGINS, Page, LEFT_IN_STEAM, STEAM_STATE, add_heading, keep_row,
                      logo_icon, on_choose, set_pill)
 
 
@@ -132,8 +132,7 @@ class AddonActions:
             self.win.flash(f"{a.name} uninstalled")
             self.refresh()
             if left_in_steam:
-                Sheet.ask(self, f"{a.name} uninstalled", "Its shortcut is still in your Steam library: Deckhand "
-                          "doesn't change Steam's list while Steam is open.\n\n" + REMOVE_IN_STEAM, ("Close",))
+                Sheet.ask(self, f"{a.name} uninstalled", LEFT_IN_STEAM, ("Close",))
 
         self.win.run_worker(run, finished, self._failed(a.name), status=self.status.setText, kind="addon")
 
@@ -316,8 +315,7 @@ class AddonActions:
             self.win.flash("Arcadia uninstalled")
             self.refresh()
             if left_in_steam:
-                Sheet.ask(self, "Arcadia uninstalled", "Its shortcut is still in your Steam library: Deckhand "
-                          "doesn't change Steam's list while Steam is open.\n\n" + REMOVE_IN_STEAM, ("Close",))
+                Sheet.ask(self, "Arcadia uninstalled", LEFT_IN_STEAM, ("Close",))
 
         self.win.run_worker(lambda _s: addons.uninstall_arcadia(self.apps.get(a.id), self.win.paths), finished,
                             self._failed("Arcadia"), kind="addon")
@@ -420,8 +418,7 @@ class AddonActions:
             self.win.flash("Nexus Launcher uninstalled")
             self.refresh()
             if left_in_steam:
-                Sheet.ask(self, "Nexus Launcher uninstalled", "Its shortcut is still in your Steam library: Deckhand "
-                          "doesn't change Steam's list while Steam is open.\n\n" + REMOVE_IN_STEAM, ("Close",))
+                Sheet.ask(self, "Nexus Launcher uninstalled", LEFT_IN_STEAM, ("Close",))
 
         self.win.run_worker(lambda _s: addons.uninstall_nexus(self.apps.get(a.id), self.win.paths), finished,
                             self._failed("Nexus Launcher"), kind="addon")

@@ -1207,9 +1207,9 @@ class TestWindow(Env):
         from deckhand import app as app_mod
         w = app_mod.MainWindow(self.paths)
         try:
-            self.assertEqual(len(w.startup_timers), 2)
+            self.assertEqual(len(w.startup_timers), 3)
             self.assertTrue(all(t.isActive() and t.isSingleShot() for t in w.startup_timers))
-            self.assertEqual(sorted(t.interval() for t in w.startup_timers), [2000, 3500])
+            self.assertEqual(sorted(t.interval() for t in w.startup_timers), [2000, 2500, 3500])
         finally:
             for t in w.startup_timers:
                 t.stop()

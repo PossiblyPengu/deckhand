@@ -31,7 +31,7 @@ from . import (__version__, addons, artwork, cleanup, core, saves, start, steamg
 from .nav import Nav
 from .pages import (AddonsPage, BrowserPage, DonePage, HomePage, HubPage, InstallPage, InstalledPage,
                     PickPage, StartPage, StoresPage, StreamingPage, UpdatePage)
-from .pages.common import (Page, REMOVE_IN_STEAM, ago, app_icon, close_steam_first,
+from .pages.common import (LEFT_IN_STEAM, Page, REMOVE_IN_STEAM, ago, app_icon, close_steam_first,
                            count_names, ensure_app_icon, logo_icon, select_row)
 from .pages.threads import InstallThread, UpdateCheckThread, UpdateDownloadThread, Worker
 from .widgets import CardDelegate, HintBar, Sheet, Toast, breakable
@@ -117,7 +117,8 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self.check_leftovers)
         # Quiet jobs a moment after the window is up (kept so a test can stop them: they must not fire at random).
         self.startup_timers = []
-        for delay, job in ((3500, self.auto_add_self_to_steam), (2000, self.refresh_better_xcloud)):
+        for delay, job in ((3500, self.auto_add_self_to_steam), (2000, self.refresh_better_xcloud),
+                           (2500, self.remove_left_shortcuts)):
             timer = QTimer(self)
             timer.setSingleShot(True)
             timer.timeout.connect(job)
@@ -1056,8 +1057,7 @@ class MainWindow(QMainWindow):
                 if self.stack.currentWidget() in (self.streaming, self.stores, self.addons, self.installed):
                     self.stack.currentWidget().refresh()
                 if left_in_steam:
-                    Sheet.ask(self, f"{app.name} removed", "Its shortcut is still in your Steam library: "
-                              "Deckhand doesn't change Steam's list while Steam is open.\n\n" + REMOVE_IN_STEAM,
+                    Sheet.ask(self, f"{app.name} removed", LEFT_IN_STEAM,
                               ("Close",))
 
             self.run_worker(remove, removed, lambda m: Sheet.ask(self, "Couldn't remove", m, ("Close",)),
@@ -1106,9 +1106,7 @@ class MainWindow(QMainWindow):
             elif self.stack.currentWidget() is self.stores:
                 self.stores.refresh()
             if left_in_steam:
-                Sheet.ask(self, msg, "Its shortcut is still in your Steam library: Deckhand doesn't change "
-                          "Steam's list while Steam is open (Steam would undo it or duplicate it).\n\n"
-                          + REMOVE_IN_STEAM, ("Close",))
+                Sheet.ask(self, msg, LEFT_IN_STEAM, ("Close",))
 
         self.run_worker(run, finished, lambda m: (self.toast.dismiss(busy),
                                                   Sheet.ask(self, "Couldn't uninstall", m, ("Close",))),
@@ -1143,8 +1141,7 @@ class MainWindow(QMainWindow):
             if self.stack.currentWidget() in (self.streaming, self.stores, self.installed):
                 self.stack.currentWidget().refresh()
             if left_in_steam:
-                Sheet.ask(self, f"{what} uninstalled", "Its shortcut is still in your Steam library: Deckhand "
-                          "doesn't change Steam's list while Steam is open.\n\n" + REMOVE_IN_STEAM, ("Close",))
+                Sheet.ask(self, f"{what} uninstalled", LEFT_IN_STEAM, ("Close",))
 
         self.run_worker(run, finished, lambda m: (self.toast.dismiss(busy),
                                                   Sheet.ask(self, "Couldn't uninstall", m, ("Close",))),
@@ -1310,6 +1307,17 @@ class MainWindow(QMainWindow):
                       "online and try again.", ("Close",))
         elif manual:
             Sheet.ask(self, "You're up to date", f"Deckhand {__version__} is the latest version.", ("Close",))
+
+    def remove_left_shortcuts(self) -> None:
+        """Shortcuts left in Steam by uninstalls while it was open go now, if Steam is closed (core.PENDING_REMOVALS)."""
+        if not core.pending_shortcut_removals(self.paths):
+            return
+        gone = core.remove_pending_shortcuts(self.paths)
+        if gone:
+            what = gone[0] if len(gone) == 1 else f"{len(gone)} shortcuts"
+            self.flash(f"Removed {what} from your Steam library (uninstalled earlier)", 6000)
+            if self.stack.currentWidget() is self.installed:
+                self.installed.refresh()
 
     def keep_update_timer(self) -> None:
         """The background check (a systemd user timer): there when update notifications are on, gone when off."""

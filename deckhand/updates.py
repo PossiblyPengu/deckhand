@@ -229,6 +229,9 @@ def enabled(paths: core.Paths) -> bool:
 def run_check(paths: core.Paths | None = None, out=print, sender=None, **kw) -> int:
     """`deckhand --check-updates`: check, remember, and notify (if notifications are on)."""
     paths = paths or core.Paths.default()
+    # (shortcuts left in Steam by uninstalls while it was open go now, if it's closed: see core.PENDING_REMOVALS)
+    for name in core.remove_pending_shortcuts(paths, roots=kw.get("roots")):
+        out(f"Removed the Steam shortcut of {name} (uninstalled earlier)")
     errors: list[Exception] = []
     found = check(paths, errors=errors, **kw)
     remember(paths, found)

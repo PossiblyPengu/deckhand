@@ -1,6 +1,7 @@
 """Headless tests for the install engine. A fake Proton stands in for the real one."""
 import os
 import struct
+import subprocess
 import sys
 import tempfile
 import threading
@@ -1116,3 +1117,52 @@ class TestInstallFlow(Env):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestShortcutsLeftInSteam(Env):
+    """An uninstall while Steam is open leaves its shortcut (Steam would undo the edit): it's removed once Steam is
+    closed, and until then its launcher says what happened."""
+
+    def _app(self):
+        launcher = self.paths.launchers / "prog-cool.sh"
+        launcher.parent.mkdir(parents=True, exist_ok=True)
+        launcher.write_text("#!/bin/bash\nexec wine cool.exe\n")
+        appid = core.add_steam_shortcut("Cool Game", str(launcher), str(launcher.parent), roots=[self.steam])[0]
+        app = core.App(id="prog-cool", name="Cool Game", exe="", prefix="", runtime_name="", runtime_kind="",
+                       runtime_path="", launcher=str(launcher), steam_appid=appid)
+        core.Library(self.paths).upsert(app)
+        return app, launcher
+
+    def test_it_is_removed_once_steam_is_closed(self):
+        app, launcher = self._app()
+        self.assertTrue(core.uninstall(app, self.paths, roots=[self.steam], running=True))
+        self.assertEqual(len(core.steam_shortcuts([self.steam])), 1)  # (Steam is open: left alone)
+        self.assertIn("was uninstalled", launcher.read_text())  # opened meanwhile, it says so
+        self.assertEqual([p["name"] for p in core.pending_shortcut_removals(self.paths)], ["Cool Game"])
+        self.assertEqual(core.remove_pending_shortcuts(self.paths, [self.steam], running=True), [])  # still open
+        self.assertEqual(core.remove_pending_shortcuts(self.paths, [self.steam], running=False), ["Cool Game"])
+        self.assertEqual(core.steam_shortcuts([self.steam]), [])
+        self.assertFalse(launcher.exists())
+        self.assertEqual(core.pending_shortcut_removals(self.paths), [])
+
+    def test_the_uninstalled_launcher_runs_and_says_so(self):
+        app, launcher = self._app()
+        core.uninstall(app, self.paths, roots=[self.steam], running=True)
+        r = subprocess.run(["bash", str(launcher)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("Cool Game was uninstalled", r.stdout)
+
+    def test_one_installed_again_meanwhile_keeps_its_shortcut(self):
+        app, launcher = self._app()
+        core.uninstall(app, self.paths, roots=[self.steam], running=True)
+        core.Library(self.paths).upsert(app)  # (installed again, same launcher)
+        launcher.write_text("#!/bin/bash\nexec wine cool.exe\n")
+        self.assertEqual(core.remove_pending_shortcuts(self.paths, [self.steam], running=False), [])
+        self.assertEqual(len(core.steam_shortcuts([self.steam])), 1)
+        self.assertTrue(launcher.exists())
+
+    def test_with_steam_closed_it_goes_at_once_and_nothing_is_queued(self):
+        app, launcher = self._app()
+        self.assertFalse(core.uninstall(app, self.paths, roots=[self.steam], running=False))
+        self.assertEqual(core.steam_shortcuts([self.steam]), [])
+        self.assertEqual(core.pending_shortcut_removals(self.paths), [])

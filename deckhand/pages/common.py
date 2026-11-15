@@ -263,6 +263,10 @@ def close_steam_first(then: str = "☰ Menu → Installed programs → Add to St
 
 
 REMOVE_IN_STEAM = "In Steam, open it and choose ⚙ → Manage → Remove non-Steam game from your library."
+# After an uninstall while Steam is open (always, in Game Mode): what happens to its shortcut (core.queue_shortcut_removal).
+LEFT_IN_STEAM = ("Its shortcut stays in your Steam library until Steam is next closed (Steam undoes changes made while "
+                 "it's open); Deckhand removes it then, by itself. Opened meanwhile, it says the program was "
+                 "uninstalled.\n\nTo remove it now: " + REMOVE_IN_STEAM[0].lower() + REMOVE_IN_STEAM[1:])
 
 STEAM_STATE = {"in": "In Steam", "sent": "Sent to Steam", "out": "Not in Steam"}
 

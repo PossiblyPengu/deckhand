@@ -2262,6 +2262,8 @@ def uninstall(app: App, paths: Paths, roots: Iterable[Path] | None = None, runni
             running = steam_is_running()
         if running:
             left_in_steam = bool(find_shortcut(app.launcher, roots, app.steam_appid)) or app.steam_added == "requested"
+            if left_in_steam:  # (removed for you the next time Steam is closed; until then it says what happened)
+                queue_shortcut_removal(paths, app)
         else:
             remove_shortcuts_for(app.launcher, app.steam_appid, roots)
     remove_desktop_entry(app)
@@ -2269,8 +2271,9 @@ def uninstall(app: App, paths: Paths, roots: Iterable[Path] | None = None, runni
         shutil.rmtree(d, ignore_errors=True)
     if app.prefix:
         shutil.rmtree(app.prefix, ignore_errors=True)
-    files = [Path(app.launcher), paths.logs / f"{app.id}.log", paths.logs / f"{app.id}-launch.log",
-             *map(Path, app.artwork)]
+    files = [paths.logs / f"{app.id}.log", paths.logs / f"{app.id}-launch.log", *map(Path, app.artwork)]
+    if not left_in_steam:
+        files.append(Path(app.launcher))
     if app.icon:
         files.append(Path(app.icon))
     for f in files:
@@ -2280,6 +2283,71 @@ def uninstall(app: App, paths: Paths, roots: Iterable[Path] | None = None, runni
             pass
     Library(paths).remove(app.id)
     return left_in_steam
+
+
+# ── Shortcuts left in a running Steam ────────────────────────────────────────
+# Steam keeps its list of shortcuts in memory while it runs and writes it back when it closes, so an edit made while
+# it runs is undone. A shortcut whose program was uninstalled then is remembered here, and removed the next time
+# Deckhand sees Steam closed (when it starts, and in its background check). Meanwhile the shortcut's launcher says
+# what happened instead of failing without a word.
+
+PENDING_REMOVALS = "pending_shortcut_removals"
+
+
+def _uninstalled_launcher(name: str) -> str:
+    msg = (f"{name} was uninstalled. Deckhand removes this shortcut the next time Steam is closed; to remove it now, "
+           "choose ⚙ → Manage → Remove non-Steam game from your library.")
+    q = shlex.quote
+    return "\n".join([
+        "#!/bin/bash", f"# Deckhand: {name} (uninstalled; this shortcut is removed when Steam next closes)",
+        f"MSG={q(msg)}", 'echo "$MSG"',
+        '(notify-send --app-name=Deckhand "Deckhand" "$MSG" || zenity --info --no-markup --text="$MSG" '
+        '|| kdialog --msgbox "$MSG") >/dev/null 2>&1', "exit 0", ""])
+
+
+def queue_shortcut_removal(paths: Paths, app: App) -> None:
+    pending = [p for p in paths.state().get(PENDING_REMOVALS) or [] if p.get("launcher") != app.launcher]
+    pending.append({"name": app.name, "launcher": app.launcher, "appid": int(app.steam_appid or 0)})
+    paths.remember(**{PENDING_REMOVALS: pending})
+    if app.launcher:
+        try:
+            launcher = Path(app.launcher)
+            launcher.parent.mkdir(parents=True, exist_ok=True)
+            launcher.write_text(_uninstalled_launcher(app.name), encoding="utf-8")
+            launcher.chmod(0o755)
+        except OSError:
+            pass
+
+
+def pending_shortcut_removals(paths: Paths) -> list[dict]:
+    return list(paths.state().get(PENDING_REMOVALS) or [])
+
+
+def remove_pending_shortcuts(paths: Paths, roots: Iterable[Path] | None = None,
+                             running: bool | None = None) -> list[str]:
+    """Remove the shortcuts left in Steam by uninstalls, if Steam is closed now. Returns their names."""
+    pending = pending_shortcut_removals(paths)
+    if not pending:
+        return []
+    if running is None:
+        running = steam_is_running()
+    if running:
+        return []
+    library = {a.launcher for a in Library(paths).load()}
+    done = []
+    for p in pending:
+        launcher, appid = str(p.get("launcher") or ""), int(p.get("appid") or 0)
+        if launcher and launcher in library:  # (installed again since: its shortcut is in use)
+            continue
+        remove_shortcuts_for(launcher, appid, roots)
+        if launcher:
+            try:
+                Path(launcher).unlink()
+            except OSError:
+                pass
+        done.append(str(p.get("name") or "a program"))
+    paths.remember(**{PENDING_REMOVALS: []})
+    return done
 
 
 # ── Duplicate shortcuts ──────────────────────────────────────────────────────
