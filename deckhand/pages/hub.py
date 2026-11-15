@@ -70,18 +70,25 @@ class SectionCard(QPushButton):
         title_font, detail_font = self.fonts()
         tm, dm = QFontMetrics(title_font), QFontMetrics(detail_font)
         text_h = tm.height() + 6 + dm.height() * 2
-        side = max(56.0, min(120.0, r.height() - text_h - pad * 2 - 12))
-        disc = QRectF(r.x() + pad, r.y() + pad, side, side)
+        room = r.height() - text_h - pad * 2 - 12
+        compact = room < 56  # (a short card, as in a scaled desktop: the glyph goes beside the words, not above)
+        if compact:
+            side = max(36.0, min(64.0, r.height() - pad * 2))
+            disc = QRectF(r.x() + pad, r.center().y() - side / 2, side, side)
+        else:
+            side = min(120.0, room)
+            disc = QRectF(r.x() + pad, r.y() + pad, side, side)
         p.setBrush(self.tint)
         p.setPen(Qt.PenStyle.NoPen)
         p.drawEllipse(disc)
         inset = side * 0.24
         draw_glyph(p, disc.adjusted(inset, inset, -inset, -inset), self.glyph, QColor(theme.ON_ACCENT))
-        width = r.width() - pad * 2
-        bottom = r.bottom() - pad
+        left = disc.right() + 16 if compact else r.x() + pad
+        width = r.right() - pad - left
         lines = 1 if dm.horizontalAdvance(self.detail) <= width else 2
-        detail_rect = QRectF(r.x() + pad, bottom - dm.height() * lines, width, dm.height() * lines)
-        title_rect = QRectF(r.x() + pad, detail_rect.y() - 6 - tm.height(), width, tm.height())
+        bottom = (r.center().y() + (tm.height() + 6 + dm.height() * lines) / 2) if compact else r.bottom() - pad
+        detail_rect = QRectF(left, bottom - dm.height() * lines, width, dm.height() * lines)
+        title_rect = QRectF(left, detail_rect.y() - 6 - tm.height(), width, tm.height())
         p.setFont(title_font)
         p.setPen(QColor(theme.TEXT))
         p.drawText(title_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
