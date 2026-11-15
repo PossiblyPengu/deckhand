@@ -145,6 +145,10 @@ class HubPage(Page):
         self.cards["start"].set_detail(f"{left} step{'s' * (left != 1)} to go" if left else "All set up")
         count = len(self.win.library.load())
         self.cards["installed"].set_detail(f"{count} program{'s' * (count != 1)}" if count else "Nothing installed yet")
+        waiting = list(getattr(self.win, "addon_updates", {}).values())
+        self.cards["addons"].set_detail(
+            f"Update: {waiting[0].text}" if len(waiting) == 1 else f"{len(waiting)} updates waiting" if waiting
+            else next(d for k, _t, _g, d in SECTIONS if k == "addons"))
 
     def enter(self) -> None:
         self.refresh()

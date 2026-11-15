@@ -162,6 +162,29 @@ class TestWindow(Env):
         closed = {st.id: st for st in start.steps(self.paths, roots=[], exe=exe, entries=[], running=False)}["steam"]
         self.assertFalse(closed.done)  # (Steam closed without saving it: it's to do again)
 
+    def test_an_add_on_update_shows_on_the_home_card_and_its_row_and_is_told_once(self):
+        from deckhand import addons, updates
+        from deckhand.widgets import PILL_ROLE
+        apps = Path(os.environ["HOME"]) / "Applications"
+        apps.mkdir(parents=True, exist_ok=True)
+        (apps / addons.ARCADIA_APPIMAGE).write_bytes(b"arcadia")
+        flashes = []
+        self.win.flash = lambda text, ms=0, tone="": flashes.append(text)
+        self.win.got_addon_updates([updates.Found("arcadia", "Arcadia", "0.1.6")])
+        self.assertEqual(self.win.hub.cards["addons"].detail, "Update: Arcadia 0.1.6")
+        self.assertEqual(flashes, ["Arcadia 0.1.6 is out · open Add-ons to update"])
+        self.win.go(self.win.addons)
+        self.pump()
+        rows = {self.win.addons.list.item(i).data(Qt.ItemDataRole.UserRole): self.win.addons.list.item(i)
+                for i in range(self.win.addons.list.count())}
+        self.assertEqual(rows["arcadia"].data(PILL_ROLE), "Update available")
+        self.assertIn("Arcadia 0.1.6 is out", rows["arcadia"].text())
+        self.win.got_addon_updates([updates.Found("arcadia", "Arcadia", "0.1.6")])
+        self.assertEqual(len(flashes), 1)  # (told once)
+        self.win.addon_updated("arcadia")
+        self.assertEqual(self.win.hub.cards["addons"].detail, "Arcadia, Decky, Proton, Nexus")
+        self.assertEqual(updates.available(self.paths), [])
+
     def test_home_shows_found_installers(self):
         self.shot("1-home-empty")
         self.add_installer("setup_the_witcher_3_goty_1.32_(10709).exe")

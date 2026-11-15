@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Callable
@@ -25,7 +26,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, addons, artwork, cleanup, core, saves, start, steamgriddb, stores, streaming, theme, updater
+from . import (__version__, addons, artwork, cleanup, core, saves, start, steamgriddb, stores, streaming, theme,
+               updater, updates)
 from .nav import Nav
 from .pages import (AddonsPage, BrowserPage, DonePage, HomePage, HubPage, InstallPage, InstalledPage,
                     PickPage, StartPage, StoresPage, StreamingPage, UpdatePage)
@@ -43,6 +45,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setObjectName("main")
         self.paths = paths or core.Paths.default()
+        # Add-ons with an update out (what the last check found, until this run checks again).
+        self.addon_updates: dict[str, updates.Found] = {f.id: f for f in updates.available(self.paths)
+                                                         if f.id != "deckhand"}
         self.library = core.Library(self.paths)  # bookkeeping only (ids, launch scripts, cleanup)
         self.installer_dirs: list[Path] | None = None  # None = Downloads, Desktop, SD/USB
         self.thread: InstallThread | None = None
@@ -122,6 +127,13 @@ class MainWindow(QMainWindow):
             check_updates = updater.self_path() is not None and not os.environ.get("DECKHAND_NO_UPDATE_CHECK")
         if check_updates:
             self.check_for_updates(manual=False)
+            # The add-ons' updates, and the background check that tells you about them when Deckhand is closed.
+            for delay, job in ((4500, self.keep_update_timer), (6000, self.check_addon_updates)):
+                timer = QTimer(self)
+                timer.setSingleShot(True)
+                timer.timeout.connect(job)
+                timer.start(delay)
+                self.startup_timers.append(timer)
 
     # chrome
     SECTIONS = ("start", "install", "stores", "stream", "addons", "installed")
@@ -917,6 +929,8 @@ class MainWindow(QMainWindow):
             ("SteamGridDB art", self.steamgriddb_menu),
             ("Look for installers again", look_again),
             ("Light look" if theme.SCHEME == "dusk" else "Dark look", self.switch_look),
+            ("Turn off update notifications" if updates.enabled(self.paths) else "Turn on update notifications",
+             self.toggle_update_notifications),
             ("About", about),
             ("Quit Deckhand", self.close),
             ("Close", None),
@@ -1155,6 +1169,45 @@ class MainWindow(QMainWindow):
         elif manual:
             Sheet.ask(self, "You're up to date", f"Deckhand {__version__} is the latest version.", ("Close",))
 
+    def keep_update_timer(self) -> None:
+        """The background check (a systemd user timer): there when update notifications are on, gone when off."""
+        exe = start.self_exe() if updater.self_path() is not None else None
+        threading.Thread(target=updates.keep_timer, args=(self.paths, exe), daemon=True).start()
+
+    def check_addon_updates(self) -> None:
+        if any(getattr(w, "kind", "") == "addon-updates" for w in self.workers):
+            return
+        # (Deckhand's own update has its banner: check_for_updates.)
+        self.run_worker(lambda _s: updates.check(self.paths, deckhand_sources=[]), self.got_addon_updates,
+                        lambda _m: None, kind="addon-updates")
+
+    def got_addon_updates(self, found: list) -> None:
+        mine = [f for f in updates.available(self.paths) if f.id == "deckhand"]
+        updates.remember(self.paths, mine + found)
+        self.addon_updates = {f.id: f for f in found}
+        self.hub.refresh()
+        if self.stack.currentWidget() is self.addons:
+            self.addons.refresh()
+
+        def tell(title: str, _body: str) -> bool:
+            self.flash(f"{title} · open Add-ons to update", 8000)
+            return True
+
+        updates.notify(self.paths, found, tell)  # (each version once, here or by the background check)
+
+    def addon_updated(self, addon_id: str) -> None:
+        """An add-on was just updated (or installed fresh): it's no longer waiting."""
+        if self.addon_updates.pop(addon_id, None) is not None:
+            updates.forget(self.paths, addon_id)
+            self.hub.refresh()
+
+    def toggle_update_notifications(self) -> None:
+        on = not updates.enabled(self.paths)
+        self.paths.remember(update_notifications=on)
+        self.keep_update_timer()
+        self.flash("Update notifications on: Deckhand checks every few hours and tells you, in Game Mode too" if on
+                   else "Update notifications off. Add-ons still shows updates when you open it", 6000)
+
     def start_update(self) -> None:
         target = updater.self_path()
         if self.update_info is None or target is None or self.update_thread is not None:
@@ -1368,6 +1421,8 @@ def main(argv: list[str] | None = None) -> int:
               "Opens Deckhand. Given an installer, asks to install it right away.\n"
               "--update downloads and installs the newest Deckhand.")
         return 0
+    if "--check-updates" in args:  # the background check (a systemd user timer; see updates.py)
+        return updates.run_check()
     if "--update" in args:
         return updater.cli_update(__version__)
     if "--update-better-xcloud" in args:  # run by the Xbox launcher before it starts the browser

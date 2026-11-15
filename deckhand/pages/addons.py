@@ -51,9 +51,14 @@ class AddonsPage(Page):
             it = QListWidgetItem(logo_icon(a.id, a.name, a.color), f"{a.name}\n" + "  ·  ".join(parts))
             it.setData(Qt.ItemDataRole.UserRole, a.id)
             st = parts[1]
-            set_pill(it, "Checking…" if st == "…" else st.split(" (")[0],
-                     "done" if st.startswith(("Installed", "Set up")) else "busy" if st.startswith("Downloaded")
-                     else "todo")
+            update = self.win.addon_updates.get(a.id) if st.startswith("Installed") else None
+            if update is not None:
+                it.setText(it.text() + f"  ·  {update.text} is out")
+                set_pill(it, "Update available", "todo")
+            else:
+                set_pill(it, "Checking…" if st == "…" else st.split(" (")[0],
+                         "done" if st.startswith(("Installed", "Set up")) else "busy" if st.startswith("Downloaded")
+                         else "todo")
             self.list.addItem(it)
         self.list.setCurrentRow(min(row, self.list.count() - 1))
         if self.installed is None and not self.win.busy_with_quietly("addon-flatpaks"):
@@ -210,6 +215,7 @@ class AddonsPage(Page):
                                  {"url": release.url, "algo": "sha512", "sha": "(from its .sha512sum file)",
                                   "verified": True})
             self.win.flash(f"{release.version} is installed", ms=5000)
+            self.win.addon_updated("ge-proton")
             self.refresh()
 
         self.win.run_worker(run, finished, self._failed("GE-Proton"), status=self.status.setText, kind="addon",
@@ -229,8 +235,11 @@ class AddonsPage(Page):
         app = self.apps.get(a.id)
         in_steam = app is not None and self.steam.get(a.id) in ("in", "sent")
         yours = not in_steam and bool(addons.arcadia_shortcut_of_yours())
+        update = self.win.addon_updates.get(a.id)
         actions = [("Open Arcadia", lambda: self._open_arcadia()),
                    ("Get the newest Arcadia", lambda: self._download_arcadia(a))]
+        if update is not None:
+            actions = [(f"Update to {update.latest}", lambda: self._download_arcadia(a)), actions[0]]
         if in_steam:
             actions.append(("Remove from Steam", lambda: self.win.uninstall(app)))
         elif not yours:
@@ -239,7 +248,8 @@ class AddonsPage(Page):
         where = ("It's in your Steam library." if in_steam else
                  "It's in your Steam library: you added it yourself, so Deckhand leaves that shortcut alone." if yours
                  else "It's not in your Steam library yet.")
-        choice = Sheet.ask(self, "Arcadia", f"Arcadia is installed. {where}", tuple(t for t, _f in actions),
+        news = f"Arcadia {update.latest} is out. " if update is not None else ""
+        choice = Sheet.ask(self, "Arcadia", f"{news}Arcadia is installed. {where}", tuple(t for t, _f in actions),
                            primary=len(actions) - 1, danger=(len(actions) - 2,))
         if 0 <= choice < len(actions) and actions[choice][1] is not None:
             actions[choice][1]()
@@ -268,6 +278,7 @@ class AddonsPage(Page):
             self.status.setText("")
             self.show_progress(None)
             self.win.paths.remember(arcadia_version=version)
+            self.win.addon_updated("arcadia")
             core.record_download(self.win.paths, "Arcadia", version, info)
             self.win._write_art(app, artwork.load_icon(app.icon))
             self.win._say_added(app, "Add-ons → Arcadia")
@@ -327,8 +338,11 @@ class AddonsPage(Page):
         app = self.apps.get(a.id)
         in_steam = app is not None and self.steam.get(a.id) in ("in", "sent")
         yours = not in_steam and bool(addons.nexus_shortcut_of_yours())
+        update = self.win.addon_updates.get(a.id)
         actions = [("Open Nexus Launcher", lambda: self._open_nexus()),
                    ("Get the newest version", lambda: self._download_nexus(a))]
+        if update is not None:
+            actions = [(f"Update to {update.latest}", lambda: self._download_nexus(a)), actions[0]]
         if in_steam:
             actions.append(("Remove from Steam", lambda: self.win.uninstall(app)))
         elif not yours:
@@ -337,7 +351,8 @@ class AddonsPage(Page):
         where = ("It's in your Steam library." if in_steam else
                  "It's in your Steam library already, so Deckhand leaves that shortcut alone." if yours
                  else "It's not in your Steam library yet.")
-        choice = Sheet.ask(self, "Nexus Launcher", f"Nexus Launcher is installed. {where}",
+        news = f"Nexus Launcher {update.latest} is out. " if update is not None else ""
+        choice = Sheet.ask(self, "Nexus Launcher", f"{news}Nexus Launcher is installed. {where}",
                            tuple(t for t, _f in actions), primary=len(actions) - 1, danger=(len(actions) - 2,))
         if 0 <= choice < len(actions) and actions[choice][1] is not None:
             actions[choice][1]()
@@ -366,6 +381,7 @@ class AddonsPage(Page):
             self.status.setText("")
             self.show_progress(None)
             self.win.paths.remember(nexus_version=version)
+            self.win.addon_updated("nexus")
             core.record_download(self.win.paths, "Nexus Launcher", version, info)
             self.win._write_art(app, artwork.load_icon(app.icon))
             self.win._say_added(app, "Add-ons → Xbox PC games")
@@ -418,7 +434,9 @@ class AddonsPage(Page):
                       "Cancel")
             options = ("update to latest release", "update to latest prerelease", "uninstall decky loader",
                        "wipe decky loader")
-            text = ("Decky Loader is installed. Deckhand runs Decky's own installer (github.com/SteamDeckHomebrew, "
+            update = self.win.addon_updates.get("decky")
+            text = (f"Decky Loader {update.latest} is out. " if update is not None else "") + (
+                    "Decky Loader is installed. Deckhand runs Decky's own installer (github.com/SteamDeckHomebrew, "
                     "the one decky.xyz links to) to update it, or to remove it. \"Wipe it\" also deletes Decky's "
                     "settings and plugins; \"Uninstall\" keeps them. Use the prerelease only on SteamOS beta.")
         else:
@@ -477,6 +495,7 @@ class AddonsPage(Page):
             if ok and removing:
                 self.win.flash("Decky Loader is removed", ms=5000)
             elif ok:
+                self.win.addon_updated("decky")
                 shown = f" {version}" if version and version != "installed" else ""
                 Sheet.ask(self, "Decky Loader is ready", f"Decky Loader{shown} is installed. Restart Steam so it "
                           "shows up: STEAM button → Power → Restart Steam. Then open it from the Quick Access menu "
