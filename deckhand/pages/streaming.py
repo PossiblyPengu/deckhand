@@ -173,8 +173,17 @@ class StreamingPage(Page):
             if browser:
                 self.win.set_up_stream(svc, browser=browser)
             return
-        if Sheet.ask(self, f"Add {svc.name} to Steam?", text, ("Add to Steam", "Cancel")) == 0:
+        own = svc.app or svc.native  # its own app, from Flathub: Deckhand can uninstall it
+        removable = bool(own) and own in installed
+        if removable:
+            text += f"\n\nOr uninstall {streaming.app_name(own)} from the Deck."
+        buttons = ("Add to Steam", "Uninstall", "Cancel") if removable else ("Add to Steam", "Cancel")
+        choice = Sheet.ask(self, svc.name if removable else f"Add {svc.name} to Steam?", text, buttons, primary=0,
+                           danger=(1,) if removable else ())
+        if choice == 0:
             self.win.set_up_stream(svc)
+        elif removable and choice == 1:
+            self.win.uninstall_flatpak(own)
 
     def _ask_browser(self, svc: streaming.Service, installed: set[str], intro: str = "") -> str | None:
         """Which browser to install for a cloud service, when the Deck has none. "" if nothing needs asking (a browser

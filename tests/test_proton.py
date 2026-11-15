@@ -113,3 +113,21 @@ class TestGEProton(Env):
             proton.install(release, [self.steam], fetch=lambda url: b"", opener=lambda url: FakeResponse(tar))
         self.assertIn("no checksum file", str(ctx.exception))
         self.assertEqual(proton.installed([self.steam]), ["GE-Proton9-20"])  # nothing was installed
+
+
+class TestRemove(Env):
+    def test_removes_every_build_of_a_version_and_nothing_else(self):
+        tools = self.steam / "compatibilitytools.d"
+        for name in ("GE-Proton11-12-x86_64", "GE-Proton11-12-aarch64", "GE-Proton11-11", "Proton-Custom"):
+            (tools / name).mkdir(parents=True)
+        self.assertTrue(proton.remove("GE-Proton11-12", [self.steam]))
+        left = {p.name for p in tools.iterdir()}
+        self.assertFalse({"GE-Proton11-12-x86_64", "GE-Proton11-12-aarch64"} & left)
+        self.assertLessEqual({"GE-Proton11-11", "Proton-Custom"}, left)
+
+    def test_never_touches_something_that_isnt_ge_proton(self):
+        tools = self.steam / "compatibilitytools.d"
+        (tools / "Proton-Custom").mkdir(parents=True)
+        for name in ("Proton-Custom", "..", ".", "../GE-Proton1-1", ""):
+            self.assertFalse(proton.remove(name, [self.steam]))
+        self.assertTrue((tools / "Proton-Custom").is_dir())

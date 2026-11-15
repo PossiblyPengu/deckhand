@@ -111,6 +111,18 @@ class TestArcadia(Env):
         self.assertEqual(list(apps.iterdir()), [])
         self.assertEqual(addons.status(addons.addon("arcadia")), "Not installed")
 
+    def test_uninstall_removes_arcadias_setup_tools_but_never_its_settings(self):
+        base = self.home / "Arcadia"
+        for f in ("deck/tools/backup.sh", "deck/lib/emulators.py", "scripts/game-end/arcadia-save-sync.sh",
+                  "scripts/game-end/my-own.sh", "deck.conf", "gamelists/nes/gamelist.xml"):
+            (base / f).parent.mkdir(parents=True, exist_ok=True)
+            (base / f).write_text("x")
+        addons.uninstall_arcadia(None, self.paths, roots=[self.steam])
+        self.assertFalse((base / "deck").exists())
+        self.assertFalse((base / "scripts/game-end/arcadia-save-sync.sh").exists())
+        for kept in ("scripts/game-end/my-own.sh", "deck.conf", "gamelists/nes/gamelist.xml"):
+            self.assertTrue((base / kept).exists(), kept)
+
     def test_a_download_that_fails_its_checksum_keeps_the_old_arcadia(self):
         apps = self.home / "Applications"
         apps.mkdir()

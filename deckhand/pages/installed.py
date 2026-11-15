@@ -8,7 +8,7 @@ from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QHBoxLayout, QListWidget, QListWidgetItem, QProgressBar, QVBoxLayout, QWidget
 
-from .. import artwork, core, fixes, saves
+from .. import artwork, core, fixes, saves, streaming
 from ..widgets import Sheet, button, label
 from .common import page_header, KIND_LABEL, PAGE_MARGINS, Page, STEAM_STATE, ago, badge_icon, glyph_icon, on_choose, set_pill
 from .threads import SizesThread
@@ -56,6 +56,7 @@ class InstalledPage(Page):
         self.sizes: dict[str, int] = {}
         self.steam: dict[str, str] = {}  # app id → core.steam_state
         self.leftovers: dict[str, Path] = {}  # "leftover:<folder>" → prefix of an unfinished install
+        self.flatpaks: dict[str, str] = {}  # "flatpak:<id>" → a Flathub app Deckhand installed that nothing uses now
         self.thread: SizesThread | None = None
 
     def refresh(self) -> None:
@@ -83,7 +84,14 @@ class InstalledPage(Page):
             it.setData(Qt.ItemDataRole.UserRole, key)
             set_pill(it, "Unfinished", "busy")
             self.list.addItem(it)
-        shown = bool(apps or self.leftovers)
+        self.flatpaks = {f"flatpak:{i}": i for i in streaming.unused(self.win.paths, apps, streaming.installed_apps())}
+        for key, flatpak in self.flatpaks.items():
+            it = QListWidgetItem(f"{streaming.app_name(flatpak)}\nFrom Flathub  ·  Nothing in Deckhand uses it now")
+            it.setIcon(glyph_icon("disc"))
+            it.setData(Qt.ItemDataRole.UserRole, key)
+            set_pill(it, "Not used", "todo")
+            self.list.addItem(it)
+        shown = bool(apps or self.leftovers or self.flatpaks)
         self.list.setVisible(shown)
         self.empty.setVisible(not shown)
         if shown:
@@ -130,6 +138,10 @@ class InstalledPage(Page):
         key = item.data(Qt.ItemDataRole.UserRole)
         if key in self.leftovers:
             self.win.leftover_chosen(self.leftovers[key], self.sizes.get(key))
+            return
+        if key in self.flatpaks:
+            if not self.win.busy_with("uninstall"):
+                self.win.uninstall_flatpak(self.flatpaks[key])
             return
         app = self.apps.get(key)
         if app is None or self.win.busy_with("uninstall") or self.win.busy_with("fix"):

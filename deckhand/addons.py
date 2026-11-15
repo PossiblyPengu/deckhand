@@ -407,13 +407,27 @@ def set_up_arcadia(paths: core.Paths, roots=None, steam: bool = True) -> core.Ap
     return app
 
 
-def uninstall_arcadia(app: core.App | None, paths: core.Paths, roots=None) -> bool:
-    """Arcadia's AppImage, launcher and shortcut go; its settings (~/Arcadia) and your games stay.
+ARCADIA_EVENTS = ("startup", "game-start", "game-end", "quit")
+
+
+def remove_arcadia_tools(home: Path | None = None) -> None:
+    """The program files Arcadia copies into its folder (what its deck/install.sh --uninstall removes): its setup
+    tools (~/Arcadia/deck) and its event scripts (~/Arcadia/scripts/*/arcadia-*.sh). Settings, saves and games stay."""
+    base = (home or Path.home()) / "Arcadia"
+    shutil.rmtree(base / "deck", ignore_errors=True)
+    for event in ARCADIA_EVENTS:
+        for f in (base / "scripts" / event).glob("arcadia-*.sh"):
+            f.unlink(missing_ok=True)
+
+
+def uninstall_arcadia(app: core.App | None, paths: core.Paths, roots=None, home: Path | None = None) -> bool:
+    """Arcadia's AppImage, its setup tools, launcher and shortcut go; its settings (~/Arcadia) and your games stay.
     True if the shortcut was left for you to remove in Steam."""
     left = core.uninstall(app, paths, roots=roots) if app is not None else False
-    for appimage in arcadia_apps():
+    for appimage in arcadia_apps(home):
         for f in (appimage, appimage.with_name(appimage.name + ".previous")):
             f.unlink(missing_ok=True)
+    remove_arcadia_tools(home)
     return left
 
 

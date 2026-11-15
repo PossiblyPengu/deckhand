@@ -63,3 +63,30 @@ class TestCleanup(Env):
         cleanup.name_games(items, lambda url: json.dumps({url.split("=")[1].split("&")[0]:
                                                           store.get(url.split("=")[1].split("&")[0], {})}).encode())
         self.assertEqual([i.name for i in items], ["Portal 2", ""])
+
+
+class TestLeftoverFolders(Env):
+    """Folders Steam leaves in steamapps/common after uninstalling (files it didn't download itself)."""
+
+    def setUp(self):
+        super().setUp()
+        self.apps = self.steam / "steamapps"
+        (self.apps / "libraryfolders.vdf").write_text(
+            f'"libraryfolders" {{ "0" {{ "path" "{self.steam}" "apps" {{ "1628350" "1" "10" "1" }} }} }}\n')
+        (self.apps / "appmanifest_10.acf").write_text('"AppState" { "appid" "10" "installdir" "Some Game" }')
+        for d in ("Some Game", "SteamLinuxRuntime_4/var/tmp-X", "Steam Controller Configs/123/config"):
+            (self.apps / "common" / d).mkdir(parents=True, exist_ok=True)
+            (self.apps / "common" / d / "big.bin").write_bytes(b"x" * (2 << 20))
+        (self.apps / "common/Tiny").mkdir()
+        (self.apps / "common/Tiny/a.txt").write_text("x")
+
+    def test_an_uninstalled_apps_folder_is_offered_and_installed_ones_never(self):
+        from deckhand import cleanup
+        found = [i for i in cleanup.find([self.steam]) if i.kind == "common"]
+        self.assertEqual([i.name for i in found], ["SteamLinuxRuntime_4"])
+        self.assertGreaterEqual(found[0].size, 2 << 20)  # (Steam's controller layouts, and a tiny folder, never)
+
+    def test_a_manifest_that_cant_be_read_means_nothing_is_offered_there(self):
+        from deckhand import cleanup
+        (self.apps / "appmanifest_11.acf").write_text('"AppState" { "appid" "11" }')  # no installdir
+        self.assertEqual([i for i in cleanup.find([self.steam]) if i.kind == "common"], [])

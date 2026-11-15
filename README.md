@@ -61,7 +61,8 @@ install and play its games from inside it:
 | **Heroic Games Launcher** (Epic Games, GOG, Amazon), **itch**, **Prism Launcher** (Minecraft: Java Edition) | Linux apps: installed from Flathub the way Discover does it (so Discover keeps them updated), then added to Steam with their own logo and artwork. Heroic can add each game you install to Steam too. |
 | **Battle.net**, **EA app**, **Ubisoft Connect**, **Epic Games Launcher**, **Amazon Games**, **Rockstar Games Launcher** | Windows apps: Deckhand downloads the store's official installer from its own site and installs it like any setup file — its own Windows setup (prefix), a Steam shortcut, and listed under Installed programs. If the store opens by itself when the installer finishes, close it (or pick **Installer is done — continue**). The downloaded installer is deleted afterwards. |
 
-Uninstalling a Windows store also deletes the games installed inside it. Games whose anti-cheat blocks Linux won't
+Picking a Linux store again offers to remove it from Steam, or to uninstall the app too (from the whole Deck; its
+settings and sign-ins stay in `~/.var/app`). Uninstalling a Windows store also deletes the games installed inside it. Games whose anti-cheat blocks Linux won't
 run, whichever store they come from. GOG's offline installers don't need a store at all: install them from **Install**
 like any setup file.
 
@@ -89,8 +90,8 @@ needs is installed from Flathub the way Discover does it (system-wide, no passwo
 SteamOS), so it shows up in Discover and Discover keeps it up to date. Sign in the first time you
 open it; leave with STEAM → Exit game. In Desktop Mode they open as a normal maximized window instead, with a
 close button. Press STEAM + X there for the on-screen keyboard (Deckhand starts Steam in the background if it
-isn't running, since the keyboard is Steam's). Picking a service again offers to remove it (the browser or app
-stays).
+isn't running, since the keyboard is Steam's). Picking a service again offers to remove it from Steam, or to
+uninstall its app or browser too, unless another service still uses that browser.
 
 ## Sister app: Arcadia
 
@@ -169,6 +170,12 @@ to remove them or add them back to Steam. Pick one to:
 Deckhand leaves Steam's list alone and tells you to remove the shortcut in Steam (⚙ → Manage → Remove non-Steam
 game). A program that isn't in Steam (you removed it, or Steam dropped it) shows "Not in Steam" and offers **Add to
 Steam** — or uninstall to free the space.
+
+Everything Deckhand installs can be uninstalled from Deckhand. A browser or app it installed from Flathub that nothing
+uses any more (the services and stores that used it were removed) is listed here as **Not used**, to uninstall it.
+GE-Proton is uninstalled from **Add-ons → GE-Proton**. **☰ Menu → Uninstall Deckhand** removes Deckhand itself (the
+app, its menu entry, its update check and its Steam shortcut); what you installed with it stays and keeps working from
+Steam, so uninstall those first if they should go too.
 
 **SteamGridDB art:** ☰ Menu → **SteamGridDB art** uses library art made by the community on
 [SteamGridDB](https://www.steamgriddb.com) instead of Deckhand's own, for everything Deckhand adds to Steam. It needs

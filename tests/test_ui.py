@@ -619,12 +619,13 @@ class TestWindow(Env):
         self.assertIn("Xbox Cloud Gaming", item)
         self.assertIn("Streaming service", item)
         self.assertIn("In Steam", item)
-        self.answers = [0, 0]  # Remove; Remove (confirm)
+        self.answers = [0, 0]  # Remove; Remove from Steam (Chrome stays)
         self.win.installed._activate(self.win.installed.list.item(0))
         self.wait_for(lambda: core.Library(self.paths).load() == [])
-        self.wait_for(lambda: self.win.installed.list.count() == 0)
-        self.assertTrue(self.win.installed.empty.isVisible())
         self.assertEqual(core.steam_shortcuts([self.steam]), [])
+        # Chrome, which Deckhand installed for it, is left with nothing using it: listed, to uninstall.
+        self.wait_for(lambda: self.win.installed.list.count() == 1
+                      and "Google Chrome" in self.win.installed.list.item(0).text())
 
     def _fake_flatpak(self, installed=()):
         from tests.test_streaming import FAKE_FLATPAK
@@ -685,6 +686,107 @@ class TestWindow(Env):
         self.assertFalse([t for t in self.asked if t.startswith("Which browser")])
         self.wait_for(lambda: core.Library(self.paths).load() != [])  # (let the set-up finish before the window goes)
         self.wait_for(lambda: not self.win.workers)
+
+    # ── Everything Deckhand installs can be uninstalled from Deckhand ──
+
+    def test_removing_a_store_can_uninstall_its_app_too(self):
+        from deckhand import stores
+        db = self._fake_flatpak()
+        stores.set_up(stores.store("heroic"), self.paths, roots=[self.steam])
+        self.assertIn("com.heroicgameslauncher.hgl", db.read_text())
+        self.win.show_stores()
+        page = self.win.stores
+        self.answers = [0, 1]  # (the store's sheet) Uninstall; Uninstall (the app too)
+        page._activate(page.list.item(0))
+        self.assertEqual(self.asked[-1], "Remove Heroic Games Launcher?")
+        self.wait_for(lambda: "com.heroicgameslauncher.hgl" not in db.read_text())
+        self.wait_for(lambda: core.Library(self.paths).load() == [])
+        self.assertEqual(core.steam_shortcuts([self.steam]), [])
+        self.assertNotIn("com.heroicgameslauncher.hgl", self.paths.state().get("flathub_apps", []))
+
+    def test_removing_only_the_shortcut_keeps_the_app_and_it_can_be_uninstalled_later(self):
+        from deckhand import stores
+        db = self._fake_flatpak()
+        stores.set_up(stores.store("heroic"), self.paths, roots=[self.steam])
+        self.win.show_stores()
+        page = self.win.stores
+        self.answers = [0, 0]  # Uninstall; Remove from Steam
+        page._activate(page.list.item(0))
+        self.wait_for(lambda: core.Library(self.paths).load() == [])
+        self.assertIn("com.heroicgameslauncher.hgl", db.read_text())
+        self.wait_for(lambda: not self.win.workers)
+        page.installed = None
+        page.refresh()
+        self.wait_for(lambda: page.installed is not None)
+        self.answers = [1, 0]  # Uninstall; Uninstall (confirm)
+        page._activate(page.list.item(0))
+        self.assertEqual(self.asked[-2:], ["Heroic Games Launcher", "Uninstall Heroic Games Launcher?"])
+        self.wait_for(lambda: "com.heroicgameslauncher.hgl" not in db.read_text())
+
+    def test_a_streaming_apps_own_app_can_be_uninstalled(self):
+        db = self._fake_flatpak(["com.moonlight_stream.Moonlight"])
+        page = self._streaming_page()
+        self.answers = [1, 0]  # Uninstall; Uninstall (confirm)
+        page._activate(page.list.item(self._row(page, "moonlight")))
+        self.assertEqual(self.asked[-2:], ["Moonlight", "Uninstall Moonlight?"])
+        self.wait_for(lambda: "com.moonlight_stream.Moonlight" not in db.read_text())
+
+    def test_a_browser_another_service_uses_is_kept_and_a_leftover_one_is_listed(self):
+        from deckhand import streaming
+        db = self._fake_flatpak(["com.google.Chrome"])
+        luna = streaming.set_up(streaming.service("amazon-luna"), self.paths, roots=[self.steam])
+        streaming.set_up(streaming.service("boosteroid"), self.paths, roots=[self.steam])
+        self.answers = [0]  # Remove (Chrome stays: Boosteroid uses it)
+        self.win.uninstall(luna)
+        self.assertEqual(self.asked[-1], "Remove Amazon Luna?")
+        self.wait_for(lambda: len(core.Library(self.paths).load()) == 1)
+        self.assertIn("com.google.Chrome", db.read_text())
+        boost = core.Library(self.paths).load()[0]
+        self.answers = [0]  # Remove from Steam (Chrome is kept)
+        self.win.uninstall(boost)
+        self.wait_for(lambda: core.Library(self.paths).load() == [])
+        self.wait_for(lambda: not self.win.workers)
+        self.win.show_installed()
+        page = self.win.installed
+        self.assertEqual(page.list.count(), 1)
+        self.assertIn("Google Chrome", page.list.item(0).text())
+        self.assertIn("Nothing in Deckhand uses it now", page.list.item(0).text())
+        self.answers = [0]  # Uninstall
+        page._activate(page.list.item(0))
+        self.assertEqual(self.asked[-1], "Uninstall Google Chrome?")
+        self.wait_for(lambda: "com.google.Chrome" not in db.read_text())
+        self.wait_for(lambda: page.list.count() == 0)
+
+    def test_a_browser_the_user_installed_themselves_is_never_listed(self):
+        self._fake_flatpak(["com.google.Chrome", "org.mozilla.firefox"])
+        self.win.show_installed()
+        self.assertEqual(self.win.installed.list.count(), 0)
+
+    def test_ge_proton_can_be_uninstalled(self):
+        from deckhand import proton
+        tools = self.steam / "compatibilitytools.d"
+        for v in ("GE-Proton11-12-x86_64", "GE-Proton10-25"):
+            (tools / v).mkdir(parents=True)
+            (tools / v / "proton").write_text("#!/bin/sh\n")
+            (tools / v / "compatibilitytool.vdf").write_text(f'"compatibilitytools" {{ "compat_tools" {{ "{v}" {{}} }} }}\n')
+        have = proton.installed([self.steam])
+        self.assertEqual(have[:2], ["GE-Proton11-12-x86_64", "GE-Proton10-25"])
+        self.win.show_addons()
+        self.answers = [0]  # the first one listed
+        self.win.addons._uninstall_ge(have)
+        self.assertEqual(self.asked[-1], "Uninstall GE-Proton")
+        self.wait_for(lambda: not (tools / have[0]).exists())
+        self.assertTrue((tools / have[1]).exists())
+        self.wait_for(lambda: not self.win.workers)
+        self.answers = [0]
+        self.win.addons._uninstall_ge(["GE-Proton10-25"])  # (just one: asked once, then gone)
+        self.assertEqual(self.asked[-1], "Uninstall GE-Proton10-25?")
+        self.wait_for(lambda: not (tools / "GE-Proton10-25").exists())
+        self.wait_for(lambda: not self.win.workers)
+        rest = proton.installed([self.steam])
+        self.answers = [len(rest)]  # "All of them"
+        self.win.addons._uninstall_ge(rest) if len(rest) > 1 else None
+        self.wait_for(lambda: len(rest) < 2 or proton.installed([self.steam]) == [])
 
     def test_a_services_own_sign_in_survives_deckhand_restarting(self):
         # Deckhand rewrites streaming launchers every time it starts: that must not drop the profile folder.

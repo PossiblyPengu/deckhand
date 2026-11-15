@@ -8,6 +8,7 @@ from PyQt6.QtCore import QEvent, QEventLoop, QPointF, QRectF, QSize, Qt, QTimer
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QImage, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import (
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -427,14 +428,22 @@ class Sheet(QWidget):
                               " border-radius: 16px; padding: 10px 12px; font-size: 15px; }")
             box.setMinimumHeight(min(320, max(120, top.height() - 420)))
             lay.addWidget(box, 1)
-        btns = QVBoxLayout() if menu else QHBoxLayout()
+        # A long list goes in two columns (one column of 9+ doesn't fit the Deck's 800 px), the last choice — Close,
+        # Cancel — across both. The D-pad moves to the nearest button in its direction, so the grid needs nothing else.
+        grid = menu and len(buttons) > 8
+        btns = QGridLayout() if grid else QVBoxLayout() if menu else QHBoxLayout()
         btns.setSpacing(10)
         self.buttons: list[QPushButton] = []
         for i, text_ in enumerate(buttons):
             obj = "primary" if i == primary else ("danger" if i in danger else "")
             b = button(text_, obj, lambda i=i: self._pick(i))
             b.setMinimumWidth(170)
-            btns.addWidget(b)
+            if grid and i == len(buttons) - 1:
+                btns.addWidget(b, (i + 1) // 2, 0, 1, 2)
+            elif grid:
+                btns.addWidget(b, i // 2, i % 2)
+            else:
+                btns.addWidget(b)
             self.buttons.append(b)
         # The buttons, with the controller's buttons beside them (the hint bar is under the dimmed window).
         foot = QHBoxLayout()
@@ -710,7 +719,7 @@ class Toast(QWidget):
         n = self.notices[-1][0]
         return n.title.text() + (" — " + n.more.text() if n.more is not None else "")
 
-    def show_message(self, text: str, ms: int = 2600, tone: str = "") -> None:
+    def show_message(self, text: str, ms: int = 2600, tone: str = "") -> Notice:
         par = self.parentWidget()
         self.setGeometry(par.rect())
         n = Notice(self, text, tone or tone_for(text))
@@ -726,6 +735,12 @@ class Toast(QWidget):
         self.raise_()
         n.show()
         self._place(animate_new=n)
+        return n
+
+    def dismiss(self, n: Notice | None) -> None:
+        """Take a notice away before its time (a "…ing" one, once that's done)."""
+        if n is not None:
+            self._drop(n)
 
     def _drop(self, n: Notice) -> None:
         for i, (m, t) in enumerate(self.notices):

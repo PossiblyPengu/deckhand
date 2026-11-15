@@ -1,7 +1,9 @@
 """Free up space: what uninstalled Steam games leave behind, and Deckhand's own leftover downloads.
 
 When a game is uninstalled Steam keeps its shader cache (steamapps/shadercache/<appid>) and its Windows
-setup (steamapps/compatdata/<appid>); on a Deck those add up to gigabytes. Shader caches are safe to
+setup (steamapps/compatdata/<appid>), and whatever in its folder (steamapps/common/<folder>) Steam didn't download
+itself: files the game made while it ran (a Steam Linux Runtime leaves its unpacked container, hundreds of MB). On a
+Deck those add up to gigabytes. Shader caches are safe to
 delete (Steam builds them again). A Windows setup can hold the saves of a game without Steam Cloud,
 so it's offered separately, with that warning.
 
@@ -20,12 +22,17 @@ from typing import Callable, Iterable
 
 from . import core, updater
 
+# Folders in steamapps/common that Steam keeps for itself, with no manifest: never leftovers. (Controller layouts live in
+# "Steam Controller Configs".)
+STEAM_OWN = {"steam controller configs", "steamworks shared", "steamvr"}
+LEFTOVER_MIN = 1 << 20  # a leftover folder smaller than this isn't worth offering
+
 STORE_API = "https://store.steampowered.com/api/appdetails?appids={}&filters=basic"
 
 
 @dataclass
 class Leftover:
-    kind: str  # "shadercache", "compatdata" or "download"
+    kind: str  # "shadercache", "compatdata", "common" (an uninstalled app's folder) or "download"
     path: Path
     appid: int = 0
     size: int = 0
@@ -51,6 +58,20 @@ def installed_appids(roots: Iterable[Path]) -> set[int]:
     return ids
 
 
+def install_dirs(lib: Path) -> set[str] | None:
+    """The folders (in steamapps/common) of the apps this library has, from its manifests. None if one can't be read."""
+    out: set[str] = set()
+    for p in (lib / "steamapps").glob("appmanifest_*.acf"):
+        try:
+            m = re.search(r'"installdir"\s+"([^"]+)"', p.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            return None
+        if m is None:
+            return None  # (a manifest without its folder: better offer nothing in this library)
+        out.add(m.group(1).lower())
+    return out
+
+
 def find(roots: Iterable[Path] | None = None, paths: core.Paths | None = None) -> list[Leftover]:
     """What can go, biggest first (sizes filled in)."""
     roots = list(core.steam_roots() if roots is None else roots)
@@ -71,6 +92,20 @@ def find(roots: Iterable[Path] | None = None, paths: core.Paths | None = None) -
                                 and d.resolve() not in seen:
                             seen.add(d.resolve())
                             out.append(Leftover(kind, d, int(d.name), core.dir_size(d)))
+                have = install_dirs(lib)
+                try:
+                    folders = sorted((lib / "steamapps/common").iterdir()) if have is not None else []
+                except OSError:
+                    folders = []
+                for d in folders:
+                    name = d.name.lower()
+                    if name in have or name in STEAM_OWN or name.startswith("steam controller") or not d.is_dir() \
+                            or d.is_symlink() or d.resolve() in seen:
+                        continue
+                    size = core.dir_size(d)
+                    if size >= LEFTOVER_MIN:
+                        seen.add(d.resolve())
+                        out.append(Leftover("common", d, 0, size, d.name))
     if paths is not None:
         try:
             out += [Leftover("download", f, 0, f.stat().st_size, f.name) for f in paths.downloads.iterdir()

@@ -199,7 +199,62 @@ def app_name(app_id: str) -> str:
         return f"{svc.name if svc else app_id[6:]} (not from Flathub)"
     if app_id == "com.nvidia.geforcenow":
         return "GeForce NOW app"
-    return APP_NAMES.get(app_id) or next((s.name for s in SERVICES if s.app == app_id), app_id)
+    return APP_NAMES.get(app_id) or catalog().get(app_id, app_id)
+
+
+def catalog() -> dict[str, str]:
+    """Every Flathub app Deckhand installs for a streaming service or a store: id → name. (Add-ons from Flathub are
+    installed and uninstalled on the Add-ons page.)"""
+    from . import stores  # (stores imports this module)
+
+    out = dict(APP_NAMES)
+    out["com.nvidia.geforcenow"] = "GeForce NOW app"
+    out.update({s.app: s.name for s in SERVICES if s.app})
+    out.update({s.app: s.name for s in stores.STORES if s.app})
+    return out
+
+
+def runs(app: core.App, installed: set[str]) -> str | None:
+    """The Flathub app a stream or store entry runs in right now, read from its launcher (a cloud service's launcher
+    settles on a browser when it starts: the one chosen at set-up, else the first other one that's installed)."""
+    try:
+        text = Path(app.launcher).read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return None
+    chosen = re.search(r"^B=(\S+)$", text, re.M)
+    if chosen:
+        others = re.search(r"^\s*for c in ([^;]+);", text, re.M)
+        order = [chosen.group(1).strip("'\""), *(others.group(1).split() if others else [])]
+        return next((b for b in order if b in installed), None)
+    direct = re.search(r"exec flatpak run '?([A-Za-z0-9_.-]+)'?", text)
+    return direct.group(1) if direct and direct.group(1) in installed else None
+
+
+def used_by(app_id: str, apps: Iterable[core.App], installed: set[str]) -> list[core.App]:
+    """The stream and store entries that run in this Flatpak app."""
+    return [a for a in apps if a.kind in ("stream", "store") and runs(a, installed) == app_id]
+
+
+def remember_ours(paths: core.Paths, apps: Iterable[core.App], installed: set[str], also: Iterable[str] = ()) -> set[str]:
+    """The Flathub apps Deckhand put on this Deck (or that its entries run in): kept in its state, so each can be
+    uninstalled from Deckhand later, once nothing uses it. Returns them all."""
+    known = set(paths.state().get("flathub_apps") or [])
+    now = known | set(also) | {r for a in apps if a.kind in ("stream", "store") for r in [runs(a, installed)] if r}
+    now &= set(catalog())
+    if now != known:
+        paths.remember(flathub_apps=sorted(now))
+    return now
+
+
+def unused(paths: core.Paths, apps: Iterable[core.App], installed: set[str]) -> list[str]:
+    """Deckhand's Flathub apps that are still installed but that nothing in Deckhand runs any more."""
+    apps = list(apps)
+    ours = remember_ours(paths, apps, installed)
+    return sorted((i for i in ours if i in installed and not used_by(i, apps, installed)), key=app_name)
+
+
+def forget_ours(paths: core.Paths, app_id: str) -> None:
+    paths.remember(flathub_apps=sorted(set(paths.state().get("flathub_apps") or []) - {app_id}))
 
 
 def better_xcloud_dir() -> Path:
@@ -460,6 +515,7 @@ def set_up(svc: Service, paths: core.Paths, status: Callable[[str], None] = lamb
         report(-1)
         install_app(need, lambda line: status(f"Installing {what} from Flathub…  {line[:60]}"),
                     lambda pct: (status(f"Installing {what} from Flathub…  {pct}%"), report(pct)))
+        remember_ours(paths, (), set(), also=(need,))
         report(-1)
         installed = detect(installed_apps(), (svc,)) | {need}
     if better_xcloud:

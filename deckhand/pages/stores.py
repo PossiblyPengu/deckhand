@@ -132,8 +132,17 @@ class StoresPage(Page):
         else:
             text = f"{s.name} is already installed. "
         text += "Then it's in your Steam library with its own artwork." + (f"\n\n{s.note}" if s.note else "")
-        if Sheet.ask(self, f"Add {s.name} to Steam?", text, ("Add to Steam", "Cancel")) == 0:
+        removable = s.app in (self.installed or set())  # (from Flathub: Deckhand can uninstall it)
+        if removable:
+            text = (f"{s.name} is installed, but it isn't in your Steam library.\n\nAdd to Steam: it's in your library "
+                    f"with its own artwork.\nUninstall: removes {s.name} from the Deck.") + (f"\n\n{s.note}" if s.note else "")
+        buttons = ("Add to Steam", "Uninstall", "Cancel") if removable else ("Add to Steam", "Cancel")
+        choice = Sheet.ask(self, s.name if removable else f"Add {s.name} to Steam?", text, buttons, primary=0,
+                           danger=(1,) if removable else ())
+        if choice == 0:
             self.win.set_up_store(s)
+        elif removable and choice == 1:
+            self.win.uninstall_flatpak(s.app)
 
     def _install(self, s: stores.Store) -> None:
         """A Windows app: download its official installer, then install it like any setup file."""

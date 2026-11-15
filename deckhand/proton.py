@@ -80,6 +80,27 @@ def remove_foreign(roots: Iterable[Path] | None = None) -> list[str]:
     return gone
 
 
+def remove(name: str, roots: Iterable[Path] | None = None) -> bool:
+    """Delete one GE-Proton version from Steam's compatibility tools (any build of it). True if one was there."""
+    roots = list(core.steam_roots() if roots is None else roots)
+    if not _is_ge(name) or "/" in name or name in (".", ".."):
+        return False
+    gone = False
+    for root in roots:
+        folder = root / "compatibilitytools.d"
+        try:
+            hits = [p for p in folder.iterdir() if p.is_dir() and _is_ge(p.name) and base_name(p.name) == base_name(name)]
+        except OSError:
+            continue
+        for p in hits:
+            if p.is_symlink():
+                p.unlink()
+            else:
+                shutil.rmtree(p)
+            gone = True
+    return gone
+
+
 def foreign_builds(roots: Iterable[Path] | None = None) -> list[Path]:
     """GE-Proton folders built for another processor (an older Deckhand installed the ARM build of GE-Proton 11)."""
     roots = list(core.steam_roots() if roots is None else roots)

@@ -269,9 +269,10 @@ class MainWindow(QMainWindow):
         elif action in ("lb", "rb"):  # L1 / R1: a screenful up or down the list
             self.page_list(-1 if action == "lb" else 1)
 
-    def flash(self, text: str, ms: int = 2600, tone: str = "") -> None:
-        """A notification: `tone` (success, warning, info…) is guessed from the words when not given."""
-        self.toast.show_message(text, ms, tone)
+    def flash(self, text: str, ms: int = 2600, tone: str = ""):
+        """A notification: `tone` (success, warning, info…) is guessed from the words when not given. Returns it, for
+        toast.dismiss."""
+        return self.toast.show_message(text, ms, tone)
 
     # ── install flow ─────────────────────────────────────────────────────
 
@@ -606,7 +607,16 @@ class MainWindow(QMainWindow):
                 found[a.id] = steamgriddb.art(a.name, key)
             return found
 
+        shown: list = []
+
+        def say(text: str) -> None:
+            while shown:
+                self.toast.dismiss(shown.pop())
+            shown.append(self.flash(text, ms=60_000))
+
         def finished(found: dict[str, dict[str, bytes]]) -> None:
+            while shown:
+                self.toast.dismiss(shown.pop())
             got = 0
             for app in self.library.load():  # (as they are now: one may have been uninstalled meanwhile)
                 images = found.get(app.id)
@@ -622,10 +632,12 @@ class MainWindow(QMainWindow):
                            "SteamGridDB has no art for these", ms=5000)
 
         def failed(message: str) -> None:
+            while shown:
+                self.toast.dismiss(shown.pop())
             if not quiet:
                 Sheet.ask(self, "SteamGridDB", message, ("Close",))
 
-        self.run_worker(run, finished, failed, status=None if quiet else (lambda t: self.flash(t, ms=60_000)),
+        self.run_worker(run, finished, failed, status=None if quiet else say,
                         kind="art")
 
     def steamgriddb_menu(self) -> None:
@@ -975,6 +987,7 @@ class MainWindow(QMainWindow):
             ("Turn off update notifications" if updates.enabled(self.paths) else "Turn on update notifications",
              self.toggle_update_notifications),
             ("About", about),
+            ("Uninstall Deckhand", self.uninstall_self),
             ("Quit Deckhand", self.close),
             ("Close", None),
         ]
@@ -992,15 +1005,45 @@ class MainWindow(QMainWindow):
 
     def uninstall(self, app: core.App, size: int | None = None) -> None:
         if app.kind in ("stream", "store", "addon"):
-            stays = {"stream": "The browser or app it uses stays installed.",
-                     "store": f"{app.name} itself stays installed, and so do the games you installed with it.",
-                     "addon": f"{app.name} itself stays installed."}[app.kind]
-            if Sheet.ask(self, f"Remove {app.name}?", f"Removes its Steam shortcut and artwork. {stays}",
-                         ("Remove", "Keep"), primary=1, danger=(0,)) != 0:
+            # The Flathub app it runs in can go too, when nothing else of Deckhand's runs in it.
+            flatpak, others = None, []
+            if app.kind in ("stream", "store"):
+                have = streaming.installed_apps()
+                apps = self.library.load()
+                streaming.remember_ours(self.paths, apps, have)
+                flatpak = streaming.runs(app, have)
+                others = [a for a in streaming.used_by(flatpak, apps, have) if a.id != app.id] if flatpak else []
+            what = streaming.app_name(flatpak) if flatpak else ""
+            if flatpak and not others:
+                keeps = ("the games you installed with it stay in its folders" if app.kind == "store" else
+                         "its settings and sign-ins stay")
+                text = (f"Remove from Steam: removes its Steam shortcut and artwork; {what} stays installed.\n\n"
+                        f"Uninstall: also removes {what} from the whole Deck (Discover can install it again; "
+                        f"{keeps} in ~/.var/app/{flatpak}).")
+                buttons = ("Remove from Steam", "Uninstall", "Keep")
+            else:
+                stays = (f"{what} stays installed: {', '.join(a.name for a in others)} uses it too." if others else
+                         {"stream": "The browser or app it uses stays installed.",
+                          "store": f"{app.name} itself stays installed, and so do the games you installed with it.",
+                          "addon": f"{app.name} itself stays installed."}[app.kind])
+                text, buttons = f"Removes its Steam shortcut and artwork. {stays}", ("Remove", "Keep")
+            choice = Sheet.ask(self, f"Remove {app.name}?", text, buttons, primary=len(buttons) - 1,
+                               danger=tuple(range(len(buttons) - 1)))
+            if choice not in range(len(buttons) - 1):
                 return
+            drop = flatpak if choice == 1 else None
+
+            def remove(_s) -> bool:
+                left = core.uninstall(app, self.paths)
+                if drop:
+                    streaming.uninstall_app(drop)
+                    streaming.forget_ours(self.paths, drop)
+                return left
 
             def removed(left_in_steam: bool) -> None:
-                self.flash(f"{app.name} removed")
+                self.flash(f"{app.name} removed" + (f" and {what} uninstalled" if drop else ""))
+                if drop:
+                    self.streaming.installed = self.stores.installed = None
                 if self.stack.currentWidget() in (self.streaming, self.stores, self.addons, self.installed):
                     self.stack.currentWidget().refresh()
                 if left_in_steam:
@@ -1008,8 +1051,8 @@ class MainWindow(QMainWindow):
                               "Deckhand doesn't change Steam's list while Steam is open.\n\n" + REMOVE_IN_STEAM,
                               ("Close",))
 
-            self.run_worker(lambda _s: core.uninstall(app, self.paths), removed,
-                            lambda m: Sheet.ask(self, "Couldn't remove", m, ("Close",)), kind="uninstall")
+            self.run_worker(remove, removed, lambda m: Sheet.ask(self, "Couldn't remove", m, ("Close",)),
+                            kind="uninstall")
             return
         extra = core.safe_extra_dirs(app)
         parts = ["the program and anything saved inside its Windows folder (many games keep their saves "
@@ -1029,7 +1072,7 @@ class MainWindow(QMainWindow):
             return
         back_up = has_saves and choice == 1
         # Deleting a big game can take a while: do it in the background (the list shows it's going).
-        self.flash(f"Uninstalling {app.name}…", ms=60_000)
+        busy = self.flash(f"Uninstalling {app.name}…", ms=60_000)
 
         def run(_status) -> bool:
             if back_up:
@@ -1037,6 +1080,7 @@ class MainWindow(QMainWindow):
             return core.uninstall(app, self.paths)
 
         def finished(left_in_steam: bool) -> None:
+            self.toast.dismiss(busy)
             self.installed.sizes.pop(app.id, None)
             msg = f"{app.name} uninstalled"
             if size:
@@ -1057,7 +1101,44 @@ class MainWindow(QMainWindow):
                           "Steam's list while Steam is open (Steam would undo it or duplicate it).\n\n"
                           + REMOVE_IN_STEAM, ("Close",))
 
-        self.run_worker(run, finished, lambda m: Sheet.ask(self, "Couldn't uninstall", m, ("Close",)),
+        self.run_worker(run, finished, lambda m: (self.toast.dismiss(busy),
+                                                  Sheet.ask(self, "Couldn't uninstall", m, ("Close",))),
+                        kind="uninstall")
+
+    def uninstall_flatpak(self, flatpak: str) -> None:
+        """Uninstall a Flathub app Deckhand installed for a store or streaming service (and the Deckhand entries
+        that run in it, which can't work without it)."""
+        what = streaming.app_name(flatpak)
+        have = streaming.installed_apps()
+        users = streaming.used_by(flatpak, self.library.load(), have)
+        also = (f" {', '.join(a.name for a in users)} stop{'s' if len(users) == 1 else ''} working without it, so "
+                f"{'its Steam shortcut goes' if len(users) == 1 else 'their Steam shortcuts go'} too.") if users else ""
+        if Sheet.ask(self, f"Uninstall {what}?", f"Removes {what} from the whole Deck.{also} Its settings and "
+                     f"sign-ins stay in ~/.var/app/{flatpak}, in case you install it again (Discover can too).",
+                     ("Uninstall", "Keep"), primary=1, danger=(0,)) != 0:
+            return
+        busy = self.flash(f"Uninstalling {what}…", ms=60_000)
+
+        def run(_s) -> bool:
+            left = False
+            for a in users:
+                left = core.uninstall(a, self.paths) or left
+            streaming.uninstall_app(flatpak)
+            streaming.forget_ours(self.paths, flatpak)
+            return left
+
+        def finished(left_in_steam: bool) -> None:
+            self.toast.dismiss(busy)
+            self.flash(f"{what} uninstalled")
+            self.streaming.installed = self.stores.installed = None  # (read again)
+            if self.stack.currentWidget() in (self.streaming, self.stores, self.installed):
+                self.stack.currentWidget().refresh()
+            if left_in_steam:
+                Sheet.ask(self, f"{what} uninstalled", "Its shortcut is still in your Steam library: Deckhand "
+                          "doesn't change Steam's list while Steam is open.\n\n" + REMOVE_IN_STEAM, ("Close",))
+
+        self.run_worker(run, finished, lambda m: (self.toast.dismiss(busy),
+                                                  Sheet.ask(self, "Couldn't uninstall", m, ("Close",))),
                         kind="uninstall")
 
     def switch_look(self) -> None:
@@ -1091,7 +1172,7 @@ class MainWindow(QMainWindow):
     def _offer_cleanup(self, items: list[cleanup.Leftover]) -> None:
         self.toast.hide()
         safe = [i for i in items if i.kind in ("shadercache", "download")]
-        setups = [i for i in items if i.kind == "compatdata"]
+        setups = [i for i in items if i.kind in ("compatdata", "common")]
 
         def total(xs) -> str:
             return core.human_size(sum(x.size for x in xs))
@@ -1107,11 +1188,18 @@ class MainWindow(QMainWindow):
                          "builds them again if you reinstall a game.")
         if downloads:
             lines.append(f"•  Deckhand's leftover downloads: {total(downloads)}.")
-        if setups:
-            biggest = ", ".join(f"{i.name or f'app {i.appid}'} ({core.human_size(i.size)})" for i in setups[:4])
-            lines.append(f"•  Windows setups (compatdata) of {games(setups)} installed: {total(setups)} — "
-                         f"{biggest}{', …' if len(setups) > 4 else ''}. Games without Steam Cloud keep their saves "
-                         "in these.")
+        prefixes = [i for i in setups if i.kind == "compatdata"]
+        folders = [i for i in setups if i.kind == "common"]
+
+        def biggest(xs) -> str:
+            return ", ".join(f"{i.name or f'app {i.appid}'} ({core.human_size(i.size)})" for i in xs[:4]) + \
+                (", …" if len(xs) > 4 else "")
+        if prefixes:
+            lines.append(f"•  Windows setups (compatdata) of {games(prefixes)} installed: {total(prefixes)} — "
+                         f"{biggest(prefixes)}. Games without Steam Cloud keep their saves in these.")
+        if folders:
+            lines.append(f"•  Folders Steam left in steamapps/common after uninstalling: {total(folders)} — "
+                         f"{biggest(folders)}. A game may have kept saves or mods in its folder.")
         unfinished = core.orphan_prefixes(self.paths)
         if unfinished:
             lines.append(f"•  {len(unfinished)} unfinished install{'s' * (len(unfinished) != 1)}: see Installed "
@@ -1144,16 +1232,18 @@ class MainWindow(QMainWindow):
     def back_up_saves(self, app: core.App) -> None:
         if self.busy_with("saves"):
             return
-        self.flash(f"Backing up {app.name}'s saves…", ms=60_000)
+        busy = self.flash(f"Backing up {app.name}'s saves…", ms=60_000)
 
         def finished(archive: Path | None) -> None:
+            self.toast.dismiss(busy)
             if archive is None:
                 self.flash(f"No saves found in {app.name}'s Windows folder", ms=5000)
             else:
                 self.flash(f"Saves backed up ({core.human_size(archive.stat().st_size)})", ms=5000)
 
         self.run_worker(lambda _s: saves.backup(app, self.paths), finished,
-                        lambda m: Sheet.ask(self, "Couldn't back up the saves", m, ("Close",)), kind="saves")
+                        lambda m: (self.toast.dismiss(busy), Sheet.ask(self, "Couldn't back up the saves", m,
+                                                                        ("Close",))), kind="saves")
 
     def restore_saves(self, app: core.App, then: Callable[[], None] = lambda: None) -> None:
         """Pick one of the program's backups and put its saves back."""
@@ -1296,6 +1386,29 @@ class MainWindow(QMainWindow):
         if self.nav:
             self.nav.stop()
         updater.restart(target)
+
+    def uninstall_self(self) -> None:
+        """Remove Deckhand itself (see selfremove). What it installed stays, and keeps working from Steam."""
+        if self.must_stay():
+            return
+        from . import selfremove
+        exe = updater.self_path()
+        apps = self.library.load()
+        kept = (f"\n\nWhat you installed with it stays and keeps working from Steam ({len(apps)} "
+                f"{'thing' if len(apps) == 1 else 'things'}). To remove those too, uninstall them first, under "
+                "Installed.") if apps else ""
+        if Sheet.ask(self, "Uninstall Deckhand?", "Removes Deckhand, its app-menu entry, its update check and its "
+                     f"Steam shortcut.{kept}", ("Uninstall Deckhand", "Keep"), primary=1, danger=(0,)) != 0:
+            return
+        result = selfremove.uninstall(exe)
+        text = "Deckhand is uninstalled. To install it again, run its get.sh command (see its GitHub page)."
+        if exe is None:
+            text = "This Deckhand runs from source, so there was nothing to uninstall."
+        if result.left_in_steam:
+            text += "\n\nIts shortcut is still in your Steam library: Deckhand doesn't change Steam's list while " \
+                    "Steam is open.\n\n" + REMOVE_IN_STEAM
+        Sheet.ask(self, "Deckhand uninstalled", text, ("Close Deckhand",))
+        self.close()
 
     def add_self_to_steam(self) -> None:
         exe = Path(sys.executable if getattr(sys, "frozen", False) else Path.home() / ".local/bin/deckhand")

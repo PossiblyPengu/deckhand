@@ -180,17 +180,51 @@ class AddonsPage(Page):
             use = ("Deckhand uses it for new installs straight away. For a Steam game, restart Steam, then pick it "
                    "under ⚙ → Properties → Compatibility.")
             if proton.has(release.version, have):
-                Sheet.ask(self, "GE-Proton", f"{release.version}, the newest, is installed. {use}", ("Close",))
+                if Sheet.ask(self, "GE-Proton", f"{release.version}, the newest, is installed. {use}",
+                             ("Uninstall", "Close"), primary=1, danger=(0,)) == 0:
+                    self._uninstall_ge(have)
                 return
             size = f" ({core.human_size(release.size)})" if release.size else ""
             now = f" You have {have[0]}." if have else ""
-            if Sheet.ask(self, f"Install {release.version}?", "GE-Proton is Proton with extra fixes and video codecs, "
-                         f"by GloriousEggroll: many games and installers work better with it.{now}\n\nDeckhand "
-                         f"downloads {release.version}{size} from its GitHub releases, checks it, and puts it with "
-                         f"Steam's compatibility tools. {use}", ("Download and install", "Cancel")) == 0:
+            buttons = ("Download and install", "Uninstall", "Cancel") if have else ("Download and install", "Cancel")
+            choice = Sheet.ask(self, f"Install {release.version}?", "GE-Proton is Proton with extra fixes and video "
+                               f"codecs, by GloriousEggroll: many games and installers work better with it.{now}\n\n"
+                               f"Deckhand downloads {release.version}{size} from its GitHub releases, checks it, and "
+                               f"puts it with Steam's compatibility tools. {use}", buttons,
+                               primary=0, danger=(1,) if have else ())
+            if choice == 0:
                 self._install_ge(release)
+            elif have and choice == 1:
+                self._uninstall_ge(have)
 
         self.win.run_worker(lambda _s: proton.latest(), found, self._failed("GE-Proton"), kind="addon")
+
+    def _uninstall_ge(self, have: list[str]) -> None:
+        """Remove one GE-Proton version, or all of them."""
+        options = [*have, "All of them"] if len(have) > 1 else list(have)
+        after = ("Programs Deckhand installed with it switch to the newest Proton left the next time they start. For a "
+                 "Steam game set to it, pick another under ⚙ → Properties → Compatibility (restart Steam first).")
+        if len(have) > 1:
+            choice = Sheet.ask(self, "Uninstall GE-Proton", f"Which one?\n\n{after}", (*options, "Cancel"),
+                               primary=len(options), danger=tuple(range(len(options))))
+            if choice not in range(len(options)):
+                return
+            names = have if choice == len(have) else [have[choice]]
+        else:
+            if Sheet.ask(self, f"Uninstall {have[0]}?", f"Removes it from Steam's compatibility tools. {after}",
+                         ("Uninstall", "Keep"), primary=1, danger=(0,)) != 0:
+                return
+            names = list(have)
+
+        def run(_s) -> list[str]:
+            return [n for n in names if proton.remove(n)]
+
+        def finished(gone: list[str]) -> None:
+            self.win.flash(f"{', '.join(gone)} uninstalled" if gone else "Nothing was removed", ms=5000)
+            self.win.addon_updated("ge-proton")
+            self.refresh()
+
+        self.win.run_worker(run, finished, self._failed("GE-Proton"), kind="addon")
 
     def _install_ge(self, release: proton.Release) -> None:
         self.status.setText(f"Downloading {release.version}…")
