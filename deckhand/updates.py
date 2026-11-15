@@ -252,17 +252,25 @@ def unit_dir(home: Path | None = None) -> Path:
     return (home or Path.home()) / ".config/systemd/user"
 
 
-def unit_files(exe: Path) -> dict[str, str]:
+# After Deckhand was uninstalled while Steam was open, the same timer finishes the job instead: it removes Deckhand's
+# own Steam shortcut once Steam is closed, then itself (see selfremove).
+FINISH_UNINSTALL = "--finish-uninstall"
+
+
+def unit_files(exe: Path, command: str = "--check-updates") -> dict[str, str]:
     q = str(exe).replace("\\", "\\\\").replace('"', '\\"')
+    finishing = command == FINISH_UNINSTALL
+    what, every = (("finish uninstalling Deckhand once Steam is closed", "15min") if finishing else
+                   ("check for updates to Deckhand and its add-ons", f"{EVERY_HOURS}h"))
     return {
         f"{TIMER}.service": (
-            "[Unit]\nDescription=Deckhand: check for updates to Deckhand and its add-ons\n"
+            f"[Unit]\nDescription=Deckhand: {what}\n"
             "After=network-online.target\n\n"
-            f'[Service]\nType=oneshot\nExecStart="{q}" --check-updates\nNice=10\n'
+            f'[Service]\nType=oneshot\nExecStart="{q}" {command}\nNice=10\n'
             "Environment=QT_QPA_PLATFORM=offscreen\n"),
         f"{TIMER}.timer": (
-            "[Unit]\nDescription=Deckhand: check for updates every few hours\n\n"
-            f"[Timer]\nOnStartupSec=5min\nOnUnitActiveSec={EVERY_HOURS}h\nRandomizedDelaySec=10min\n\n"
+            f"[Unit]\nDescription=Deckhand: {what}, now and then\n\n"
+            f"[Timer]\nOnStartupSec=5min\nOnUnitActiveSec={every}\nRandomizedDelaySec=10min\n\n"
             "[Install]\nWantedBy=timers.target\n"),
     }
 
@@ -274,10 +282,10 @@ def _systemctl(*args: str) -> bool:
         return False
 
 
-def install_timer(exe: Path, home: Path | None = None, systemctl=_systemctl) -> bool:
+def install_timer(exe: Path, home: Path | None = None, systemctl=_systemctl, command: str = "--check-updates") -> bool:
     """Write and start the timer (again, when Deckhand has moved or the units changed). True if it's running."""
     folder = unit_dir(home)
-    wanted = unit_files(exe)
+    wanted = unit_files(exe, command)
     changed = False
     try:
         folder.mkdir(parents=True, exist_ok=True)

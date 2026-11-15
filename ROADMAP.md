@@ -46,7 +46,8 @@ Weakest tested areas in Deckhand: `app.py` (75 %); gamepad input is now 84 % (wa
 - ~~Screens at Desktop Mode's 1.35× scale~~ **Done:** every page and dialog rendered at that size; the Menu overlapped
   and now takes as many columns as it needs.
 - ~~Setup's checklist can't be translated~~ **Done:** the tool sends codes, Setup turns them into translated words.
-- Uninstalling Deckhand itself while Steam is open still leaves its own shortcut (nothing is left to remove it later).
+- ~~Uninstalling Deckhand itself while Steam is open leaves its own shortcut~~ **Done:** the app stays (out of the menu)
+  until Steam is closed; its timer then removes the shortcut, the app and itself.
 - Apps get set up as they install (done): emulators find `~/Emulation/bios` and get starter controls; Protontricks,
   Bottles and itch see the SD card. Not yet: BIOS links for Flycast, xemu, Cemu keys, RPCS3 firmware.
 
@@ -59,7 +60,7 @@ Weakest tested areas in Deckhand: `app.py` (75 %); gamepad input is now 84 % (wa
 - Deckhand is English only (Arcadia has 25 languages).
 - `deckhand/core.py` is 2.6k lines mixing prefixes, Steam shortcuts, installing and discovery.
 - The git history still holds ~183 MB of old Deckhand binaries (only a history rewrite removes them).
-- Arcadia's docs screenshots predate the hub, dialogs and Emulators screen.
+- ~~Arcadia's docs screenshots predate the hub~~ **Done:** `tools/screenshots.sh` takes them (and the Emulators screen).
 
 **Features people will look for**
 - Deckhand: ~~Proton version per program~~ (done: Installed → Proton version); several installers at once; ProtonDB ratings before installing; SteamGridDB art
@@ -80,7 +81,7 @@ Each item: why, size (S under half a day, M a day or two, L a week).
 1. Deckhand's dialogs and lists at 1.35× scale: screenshots, then fix what overlaps. **S**
 2. Arcadia's checklist from C++ (or the tools emit keys the C++ translates), so it can be translated. **S**
 3. Tests for gamepad input (55 %). **M**
-4. Regenerate Arcadia's docs screenshots with a script (the smoke test's virtual screen can take them). **M**
+4. ~~Regenerate Arcadia's docs screenshots with a script~~ (done). **M**
 
 ### Then
 1. Split `core.py` into `prefix`, `steam`, `installer` and `discovery`, without changing behaviour. **L**

@@ -29,6 +29,7 @@ echo "Verifying checksum…"
 
 mkdir -p "$BIN_DIR" "$DESKTOP_DIR"
 install -m 755 "$TMP/$ASSET" "$BIN_DIR/deckhand"
+rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/deckhand/uninstalled"  # (installed again before an uninstall finished)
 
 cat > "$DESKTOP_DIR/deckhand.desktop" << DESKTOP
 [Desktop Entry]

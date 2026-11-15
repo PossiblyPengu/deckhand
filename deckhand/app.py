@@ -1419,12 +1419,11 @@ class MainWindow(QMainWindow):
                      f"Steam shortcut.{kept}", ("Uninstall Deckhand", "Keep"), primary=1, danger=(0,)) != 0:
             return
         result = selfremove.uninstall(exe)
-        text = "Deckhand is uninstalled. To install it again, run its get.sh command (see its GitHub page)."
+        text = UNINSTALLED_TEXT
         if exe is None:
             text = "This Deckhand runs from source, so there was nothing to uninstall."
         if result.left_in_steam:
-            text += "\n\nIts shortcut is still in your Steam library: Deckhand doesn't change Steam's list while " \
-                    "Steam is open.\n\n" + REMOVE_IN_STEAM
+            text += "\n\n" + SHORTCUT_GOES
         Sheet.ask(self, "Deckhand uninstalled", text, ("Close Deckhand",))
         self.close()
 
@@ -1588,6 +1587,11 @@ def add_arcadia_cli(out=print) -> int:
     return 0
 
 
+UNINSTALLED_TEXT = "Deckhand is uninstalled. To install it again, run its get.sh command (see its GitHub page)."
+SHORTCUT_GOES = ("Its shortcut stays in your Steam library until Steam is next closed (Steam undoes changes made "
+                 "while it's open); it's removed then, by itself.")
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
     args = argv[1:]
@@ -1604,6 +1608,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if "--check-updates" in args:  # the background check (a systemd user timer; see updates.py)
         return updates.run_check()
+    if updates.FINISH_UNINSTALL in args:  # the same timer, after an uninstall while Steam was open (selfremove)
+        from . import selfremove
+        selfremove.finish()
+        return 0
     if "--update" in args:
         return updater.cli_update(__version__)
     if "--update-better-xcloud" in args:  # run by the Xbox launcher before it starts the browser
@@ -1621,6 +1629,11 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationName("Deckhand")
     app.setDesktopFileName("deckhand")
     app.setWindowIcon(app_icon())
+    from . import selfremove
+    if selfremove.uninstalling():  # (opened from the shortcut an uninstall left in a running Steam)
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.information(None, "Deckhand", UNINSTALLED_TEXT + "\n\n" + SHORTCUT_GOES)
+        return 0
     files = [str(Path(a).resolve()) for a in args if not a.startswith("-")]
     if SingleInstance.hand_off(files):
         print("Deckhand is already open — passed it on.")

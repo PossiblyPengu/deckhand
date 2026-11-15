@@ -37,12 +37,30 @@ class TestUninstallSelf(Env):
         self.assertFalse(r.left_in_steam)
         self.assertIn(("disable", "--now", "deckhand-updates.timer"), self.calls)
 
-    def test_with_steam_open_the_shortcut_is_left_for_steam(self):
+    def test_with_steam_open_the_rest_waits_for_steam_to_close(self):
         core.add_steam_shortcut("Deckhand", str(self.exe), str(self.exe.parent), roots=[self.steam])
         r = selfremove.uninstall(self.exe, self.home, [self.steam], running=True, systemctl=self.systemctl)
         self.assertTrue(r.left_in_steam)
         self.assertEqual(len(core.steam_shortcuts([self.steam])), 1)
-        self.assertFalse(self.exe.exists())
+        self.assertFalse(self.desktop.exists() or self.icon.exists())  # (gone from the menu at once)
+        self.assertTrue(self.exe.exists())  # (the shortcut's program stays until then)
+        self.assertTrue(selfremove.uninstalling(self.home))
+        service = (self.timer.parent / "deckhand-updates.service").read_text()
+        self.assertIn(f'"{self.exe}" --finish-uninstall', service)
+
+        # The timer, while Steam is still open: nothing yet.
+        self.assertFalse(selfremove.finish(self.home, [self.steam], running=True, systemctl=self.systemctl))
+        self.assertTrue(self.exe.exists())
+        # Once Steam is closed: the shortcut, the app, its cache and the timer go.
+        self.assertTrue(selfremove.finish(self.home, [self.steam], running=False, systemctl=self.systemctl))
+        self.assertEqual(core.steam_shortcuts([self.steam]), [])
+        for f in (self.exe, self.timer, self.timer.parent / "deckhand-updates.service", self.cache.parent.parent):
+            self.assertFalse(f.exists(), f)
+        self.assertFalse(selfremove.uninstalling(self.home))
+
+    def test_finish_with_nothing_waiting_does_nothing(self):
+        self.assertTrue(selfremove.finish(self.home, [self.steam], running=False, systemctl=self.systemctl))
+        self.assertTrue(self.exe.exists() and self.timer.exists())
 
     def test_what_it_installed_stays(self):
         launcher = self.paths.launchers / "store-heroic.sh"
