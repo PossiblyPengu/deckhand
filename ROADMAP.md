@@ -23,7 +23,7 @@ AddressSanitizer build of Arcadia driven with no games (`tools/smoke_test.sh`, n
 | Releases | change `VERSION` + `RELEASE_NOTES.md`, push to `main`: GitHub tests, builds, publishes | the same |
 | Speed on a Deck | window in **0.35–0.47 s** (was 1.6 s); a button press handled in ~5 ms | window in 0.33 s; 90 FPS, ~30 when idle |
 
-Weakest tested areas in Deckhand: gamepad input (55 %), `app.py` (75 %).
+Weakest tested areas in Deckhand: `app.py` (75 %); gamepad input is now 84 % (was 55 %).
 
 ## 2. Done since the last audit
 - **Everything Deckhand installs can be uninstalled from Deckhand** (store and streaming apps, browsers it installed,
@@ -42,10 +42,13 @@ Weakest tested areas in Deckhand: gamepad input (55 %), `app.py` (75 %).
 ## 3. Open
 
 **Fixes**
-- **Cloud saves need a terminal**: rclone isn't on SteamOS and Setup's "Connect" only says to run `rclone config`.
-- Deckhand's other screens (dialogs, lists) at Desktop Mode's 1.35× scale weren't checked; the home screen was fixed.
-- Arcadia's Setup checklist text comes from its shell tools, so it can't be translated.
+- ~~Cloud saves need a terminal~~ **Done:** Connect gets rclone (checked) and signs in with the browser (Desktop Mode).
+- ~~Screens at Desktop Mode's 1.35× scale~~ **Done:** every page and dialog rendered at that size; the Menu overlapped
+  and now takes as many columns as it needs.
+- ~~Setup's checklist can't be translated~~ **Done:** the tool sends codes, Setup turns them into translated words.
 - Uninstalling Deckhand itself while Steam is open still leaves its own shortcut (nothing is left to remove it later).
+- Apps get set up as they install (done): emulators find `~/Emulation/bios` and get starter controls; Protontricks,
+  Bottles and itch see the SD card. Not yet: BIOS links for Flycast, xemu, Cemu keys, RPCS3 firmware.
 
 **Not yet tried on a real Deck**
 - Game Mode end to end, controller only (both apps), and the update notification as a Steam toast.
@@ -59,10 +62,10 @@ Weakest tested areas in Deckhand: gamepad input (55 %), `app.py` (75 %).
 - Arcadia's docs screenshots predate the hub, dialogs and Emulators screen.
 
 **Features people will look for**
-- Deckhand: Proton version per program; several installers at once; ProtonDB ratings before installing; SteamGridDB art
+- Deckhand: ~~Proton version per program~~ (done: Installed → Proton version); several installers at once; ProtonDB ratings before installing; SteamGridDB art
   by default; one Updates screen.
-- Arcadia: a guided cloud-save setup (sign in with a controller). Per-game emulator choice exists (ES-DE's game options)
-  but is hard to find.
+- Arcadia: ~~guided cloud-save setup~~ (done, in Desktop Mode); ~~per-game emulator choice hard to find~~ (done: game
+  options → Emulator for this game).
 - Both: one update for the pair.
 
 ## 4. The plan
