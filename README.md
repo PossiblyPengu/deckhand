@@ -208,7 +208,7 @@ deckhand --add-arcadia               # download Arcadia, the sister app, and add
 pip install -r requirements.txt         # just PyQt6
 python3 -m deckhand                 # run from source
 QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -t .
-./deckhand/build_onefile.sh         # → dist/deckhand
+./deckhand/build_onefile.sh         # → dist/deckhand-linux-x86_64 (one file: a launcher with the app attached)
 ```
 
 The tests use a fake Proton and fake Steam install, so they run anywhere, including CI. On minimal Linux images PyQt6 needs

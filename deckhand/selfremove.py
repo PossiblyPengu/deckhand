@@ -1,12 +1,14 @@
 """Uninstalling Deckhand itself: what get.sh put on the Deck, and what Deckhand added for itself.
 
-That is the app (~/.local/bin/deckhand), its menu entry and icon, the background update check (a systemd user timer)
+That is the app (~/.local/bin/deckhand, and its unpacked copy in ~/.cache/deckhand), its menu entry and icon, the background update check (a systemd user timer)
 and its own Steam shortcut. What Deckhand installed for you is left alone, and keeps working: programs, stores and
 streaming services run from Steam through their launchers in Deckhand's data folder (~/.local/share/deckhand), which
 stays, so each can still be found and removed by hand, or by installing Deckhand again.
 """
 from __future__ import annotations
 
+import os
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
@@ -52,4 +54,13 @@ def uninstall(exe: Path | None, home: Path | None = None, roots: Iterable[Path] 
             out.removed.append(str(f))
         except OSError:
             pass
+    unpacked = cache_dir(home)  # (the launcher's unpacked copies of the app)
+    if unpacked.is_dir():
+        shutil.rmtree(unpacked, ignore_errors=True)
+        out.removed.append(str(unpacked))
     return out
+
+
+def cache_dir(home: Path | None = None) -> Path:
+    base = os.environ.get("XDG_CACHE_HOME") if home is None else None
+    return (Path(base) if base else (home or Path.home()) / ".cache") / "deckhand"

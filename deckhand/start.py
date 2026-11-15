@@ -25,9 +25,9 @@ def to_go(steps: list[Step]) -> int:
 
 def self_exe() -> Path | None:
     """The Deckhand binary Steam would run (None when running from source without get.sh)."""
-    import sys
+    from . import updater
 
-    exe = Path(sys.executable) if getattr(sys, "frozen", False) else Path.home() / ".local/bin/deckhand"
+    exe = updater.app_file() or Path.home() / ".local/bin/deckhand"
     return exe if exe.exists() else None
 
 

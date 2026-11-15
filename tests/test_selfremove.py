@@ -19,7 +19,8 @@ class TestUninstallSelf(Env):
         self.desktop = share / "applications/deckhand.desktop"
         self.icon = share / "icons/hicolor/256x256/apps/deckhand.png"
         self.timer = self.home / ".config/systemd/user/deckhand-updates.timer"
-        for f in (self.desktop, self.icon, self.timer):
+        self.cache = self.home / ".cache/deckhand/app-0123456789abcdef/deckhand"
+        for f in (self.desktop, self.icon, self.timer, self.cache):
             f.parent.mkdir(parents=True, exist_ok=True)
             f.write_text("x")
 
@@ -30,7 +31,7 @@ class TestUninstallSelf(Env):
     def test_removes_the_app_its_menu_entry_icon_timer_and_shortcut(self):
         core.add_steam_shortcut("Deckhand", str(self.exe), str(self.exe.parent), roots=[self.steam])
         r = selfremove.uninstall(self.exe, self.home, [self.steam], running=False, systemctl=self.systemctl)
-        for f in (self.exe, self.desktop, self.icon, self.timer):
+        for f in (self.exe, self.desktop, self.icon, self.timer, self.cache.parent.parent):
             self.assertFalse(f.exists(), f)
         self.assertEqual(core.steam_shortcuts([self.steam]), [])
         self.assertFalse(r.left_in_steam)

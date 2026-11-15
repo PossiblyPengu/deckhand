@@ -113,6 +113,7 @@ def clean_env() -> dict[str, str]:
             env["LD_PRELOAD"] = ":".join(kept)
         else:
             env.pop("LD_PRELOAD", None)
+    env.pop("DECKHAND_SELF", None)  # (Deckhand's own: a program it starts isn't Deckhand)
     if getattr(sys, "frozen", False):
         for key in ("LD_LIBRARY_PATH", "QT_PLUGIN_PATH", "QML2_IMPORT_PATH", "SSL_CERT_FILE"):
             orig = env.pop(key + "_ORIG", None)

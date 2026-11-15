@@ -1411,7 +1411,7 @@ class MainWindow(QMainWindow):
         self.close()
 
     def add_self_to_steam(self) -> None:
-        exe = Path(sys.executable if getattr(sys, "frozen", False) else Path.home() / ".local/bin/deckhand")
+        exe = updater.app_file() or Path.home() / ".local/bin/deckhand"
         if not exe.exists():
             Sheet.ask(self, "Add to Steam", "Install Deckhand with get.sh first.", ("Close",))
             return

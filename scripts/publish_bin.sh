@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the single-file app into bin/ and write bin/deckhand.json, which get.sh and the in-app
+# Build the app into bin/ (one file: a launcher with the app attached, see make_app_file.sh) and write bin/deckhand.json, which get.sh and the in-app
 # updater read. Usage: scripts/publish_bin.sh ["What's new, one line"]
 set -euo pipefail
 
@@ -8,10 +8,10 @@ cd "$ROOT"
 NOTES="${1:-}"
 VERSION="$(python3 -c 'import deckhand; print(deckhand.__version__)')"
 
-python3 -m PyInstaller --noconfirm --clean --onefile --windowed --strip --name deckhand \
+python3 -m PyInstaller --noconfirm --clean --onedir --windowed --strip --name deckhand \
   --paths . --add-data deckhand/logos:deckhand/logos --add-data deckhand/fonts:deckhand/fonts deckhand/__main__.py
 mkdir -p bin
-cp dist/deckhand bin/deckhand-linux-x86_64
+scripts/make_app_file.sh dist/deckhand bin/deckhand-linux-x86_64
 (cd bin && sha256sum deckhand-linux-x86_64 > deckhand-linux-x86_64.sha256)
 SHA="$(cut -d' ' -f1 bin/deckhand-linux-x86_64.sha256)"
 python3 - "$VERSION" "$SHA" "$NOTES" > bin/deckhand.json <<'PY'

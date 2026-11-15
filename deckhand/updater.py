@@ -157,11 +157,28 @@ def check(current: str, sources: list[Callable[[], Update | None]] | None = None
     return best
 
 
-def self_path() -> Path | None:
-    """The running single-file app, if it can replace itself (not when running from source)."""
+SELF_ENV = "DECKHAND_SELF"  # set by the launcher (scripts/make_app_file.sh): the file that was started
+
+
+def app_file() -> Path | None:
+    """Deckhand's own file, the one that was downloaded and that Steam and the menu run (None from source).
+
+    The download is a launcher with the app attached: the first start of each version unpacks the app once (into
+    ~/.cache/deckhand), then every start runs that unpacked copy directly, which is quick. That copy isn't the file
+    to update, to add to Steam or to delete, so the launcher says which file was started."""
     if not getattr(sys, "frozen", False):
         return None
-    p = Path(sys.executable).resolve()
+    started = os.environ.get(SELF_ENV)
+    if started and Path(started).is_file():
+        return Path(started).resolve()
+    return Path(sys.executable).resolve()
+
+
+def self_path() -> Path | None:
+    """The running app's own file, if it can replace itself (not when running from source)."""
+    p = app_file()
+    if p is None:
+        return None
     return p if os.access(p.parent, os.W_OK) else None
 
 
@@ -305,7 +322,7 @@ def restart_env() -> dict[str, str]:
     """Environment for starting the new app as a fresh process, not as the old one's extraction."""
     from .core import clean_env
 
-    env = {k: v for k, v in clean_env().items() if not k.startswith("_PYI_") and k != "_MEIPASS2"}
+    env = {k: v for k, v in clean_env().items() if not k.startswith("_PYI_") and k not in ("_MEIPASS2", SELF_ENV)}
     env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
     return env
 
@@ -317,7 +334,7 @@ def restart(target: Path, args: list[str] | None = None) -> None:
 def why_no_self_update() -> str:
     if not getattr(sys, "frozen", False):
         return "This copy runs from source — update it with git pull, or reinstall with get.sh."
-    return (f"Deckhand can't replace its own file in {Path(sys.executable).resolve().parent}. "
+    return (f"Deckhand can't replace its own file in {(app_file() or Path(sys.executable)).parent}. "
             "Reinstall it with get.sh, which puts it in ~/.local/bin.")
 
 
