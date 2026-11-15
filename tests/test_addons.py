@@ -16,6 +16,7 @@ DECKY_SCRIPT = b"#!/bin/bash\n# Decky Installer (fake)\nmkdir -p \"$HOME/homebre
                b"touch \"$HOME/homebrew/services/PluginLoader\"\necho v3.1.10 > \"$HOME/homebrew/services/.loader.version\"\n" \
                b"echo installed\n"
 
+
 class FakeResponse(io.BytesIO):
     def __init__(self, data: bytes):
         super().__init__(data)
@@ -70,7 +71,7 @@ class TestArcadia(Env):
         appimage = self.home / "Applications" / addons.ARCADIA_APPIMAGE
         self.assertEqual(appimage.read_bytes(), ARCADIA_BODY)
         self.assertTrue(os.access(appimage, os.X_OK))
-        self.assertEqual(addons.status(a), "Installed")
+        self.assertEqual(addons.status(a), "Installed (0.1.0)")  # (the download says which version it is)
         app = addons.set_up_arcadia(self.paths, roots=[self.steam])
         self.assertEqual((app.id, app.kind, app.exe), ("addon-arcadia", "addon", str(appimage)))
         self.assertIn(str(appimage), Path(app.launcher).read_text())
@@ -79,7 +80,7 @@ class TestArcadia(Env):
         addons.set_up_arcadia(self.paths, roots=[self.steam])
         self.assertEqual(len(core.steam_shortcuts([self.steam])), 1)
         # Uninstalling removes the AppImage and the shortcut, never Arcadia's settings.
-        (self.home / "Arcadia").mkdir()
+        (self.home / "Arcadia").mkdir(exist_ok=True)
         self.assertFalse(addons.uninstall_arcadia(app, self.paths, roots=[self.steam]))
         self.assertFalse(appimage.exists())
         self.assertEqual(core.steam_shortcuts([self.steam]), [])
@@ -122,6 +123,25 @@ class TestArcadia(Env):
         self.assertFalse((base / "scripts/game-end/arcadia-save-sync.sh").exists())
         for kept in ("scripts/game-end/my-own.sh", "deck.conf", "gamelists/nes/gamelist.xml"):
             self.assertTrue((base / kept).exists(), kept)
+
+    def test_the_add_ons_page_shows_which_arcadia_you_have(self):
+        a = addons.addon("arcadia")
+        apps = self.home / "Applications"
+        apps.mkdir()
+        appimage = apps / addons.ARCADIA_APPIMAGE
+        appimage.write_bytes(ARCADIA_BODY)
+        self.assertEqual(addons.status(a), "Installed")  # (never started yet: not known)
+        version = self.home / addons.ARCADIA_VERSION_FILE
+        version.parent.mkdir(parents=True)
+        version.write_text("0.1.5\n")  # (what Arcadia writes when it starts)
+        self.assertEqual(addons.status(a), "Installed (0.1.5)")
+        os.utime(version, (1, 1))  # written before the AppImage last changed: an older Arcadia's
+        self.assertEqual(addons.status(a), "Installed")
+
+    def test_a_download_records_which_arcadia_it_installed(self):
+        addons.download_arcadia(fetch=lambda url: arcadia_release(), opener=lambda url: FakeResponse(ARCADIA_BODY))
+        self.assertEqual(addons.arcadia_version(), "0.1.0")
+        self.assertEqual(addons.status(addons.addon("arcadia")), "Installed (0.1.0)")
 
     def test_a_download_that_fails_its_checksum_keeps_the_old_arcadia(self):
         apps = self.home / "Applications"
@@ -168,7 +188,6 @@ class TestFlathubAddons(FlatpakEnv):
             if a.app:
                 self.assertRegex(a.app, r"^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){2,}$", a.id)
             self.assertFalse(a.steam and not a.app, a.id)  # only Flathub apps are added to Steam
-
 
 
 class AddArcadiaCliTests(unittest.TestCase):
@@ -536,8 +555,8 @@ class TestDownloadsAreChecked(Env):
     def test_arcadia_without_a_usable_checksum_is_refused(self):
         for digest in ("", "sha1:" + "a" * 40, "sha256:abc", "sha256:" + "z" * 64):
             body = json.dumps({"tag_name": "v1", "assets": [{"name": addons.ARCADIA_APPIMAGE,
-                                                              "browser_download_url": "https://example.invalid/a",
-                                                              **({"digest": digest} if digest else {})}]}).encode()
+                                                             "browser_download_url": "https://example.invalid/a",
+                                                             **({"digest": digest} if digest else {})}]}).encode()
             with self.assertRaises(core.InstallError, msg=digest) as ctx:
                 addons.download_arcadia(fetch=lambda url: body, opener=lambda url: FakeResponse(ARCADIA_BODY))
             self.assertIn("doesn't list a checksum", str(ctx.exception))

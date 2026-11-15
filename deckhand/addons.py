@@ -164,7 +164,10 @@ def status(a: Addon, home: Path | None = None, installed: set[str] | None = None
         have = proton.installed()
         return f"Installed ({have[0]})" if have else "Not installed"
     if a.id == "arcadia":
-        return "Installed" if arcadia_app(home) else "Not installed"
+        if not arcadia_app(home):
+            return "Not installed"
+        v = arcadia_version(home)
+        return f"Installed ({v})" if v else "Installed"
     if a.id == "decky":
         v = decky_version(home)
         return f"Installed ({v})" if v and v != "installed" else ("Installed" if v else "Not installed")
@@ -371,7 +374,34 @@ def download_arcadia(progress: Callable[[int, int], None] = lambda done, total: 
         raise core.InstallError("The Arcadia download didn't match its checksum. Try again.")
     new.chmod(0o755)
     os.replace(new, dest)
+    remember_arcadia_version(version, home)
     return version
+
+
+ARCADIA_VERSION_FILE = "Arcadia/state/arcadia-version"  # written by Arcadia when it starts, and by what updates it
+
+
+def remember_arcadia_version(version: str, home: Path | None = None) -> None:
+    f = (home or Path.home()) / ARCADIA_VERSION_FILE
+    try:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(version.lstrip("v") + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def arcadia_version(home: Path | None = None) -> str:
+    """The version of the Arcadia on the Deck, "" when it isn't known: Arcadia writes it when it starts, Deckhand and
+    Arcadia's own updater when they install one. A version written before the AppImage last changed doesn't count."""
+    app = arcadia_app(home)
+    f = (home or Path.home()) / ARCADIA_VERSION_FILE
+    try:
+        if app is None or f.stat().st_mtime < app.stat().st_mtime:
+            return ""
+        v = f.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    return v if re.fullmatch(r"\d+(\.\d+)*", v) else ""
 
 
 def arcadia_launcher(paths: core.Paths, appimage: Path) -> Path:

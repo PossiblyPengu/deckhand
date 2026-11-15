@@ -86,7 +86,7 @@ def check_arcadia(home: Path | None = None, fetch=None, paths: core.Paths | None
         return None
     version, _url, sha = addons.arcadia_release(fetch)
     if sha and _hash(app, "sha256", paths) != sha:
-        return Found("arcadia", "Arcadia", version)
+        return Found("arcadia", "Arcadia", version, addons.arcadia_version(home))
     return None
 
 
@@ -117,7 +117,7 @@ def check_ge_proton(roots=None, fetch=None) -> Found | None:
         return None
     latest = proton.latest(fetch).version
     if latest and not proton.has(latest, have) and updater.is_newer(proton.base_name(latest),
-                                                                     proton.base_name(have[0])):
+                                                                    proton.base_name(have[0])):
         return Found("ge-proton", "GE-Proton", proton.base_name(latest), have[0])
     return None
 
