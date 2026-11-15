@@ -46,8 +46,8 @@ class MainWindow(QMainWindow):
         self.setObjectName("main")
         self.paths = paths or core.Paths.default()
         # Add-ons with an update out (what the last check found, until this run checks again).
-        self.addon_updates: dict[str, updates.Found] = {f.id: f for f in updates.available(self.paths)
-                                                         if f.id != "deckhand"}
+        self.addon_updates: dict[str, updates.Found] = {
+            f.id: f for f in updates.available(self.paths) if f.id != "deckhand"}
         self.library = core.Library(self.paths)  # bookkeeping only (ids, launch scripts, cleanup)
         self.installer_dirs: list[Path] | None = None  # None = Downloads, Desktop, SD/USB
         self.thread: InstallThread | None = None
@@ -885,8 +885,8 @@ class MainWindow(QMainWindow):
         their Steam artwork and app menu entry. (The shortcut's own small icon stays until it's added
         to Steam again: Steam's list can't be changed behind a running Steam.)"""
         for app in self.library.load():
-            if app.kind in ("stream", "store", "addon") and not app.icon and core.use_logo(app, self.paths,
-                                                                                 app.id.split("-", 1)[1]):
+            if app.kind in ("stream", "store", "addon") and not app.icon and core.use_logo(
+                    app, self.paths, app.id.split("-", 1)[1]):
                 core.write_desktop_entry(app)
                 self._write_art(app, artwork.load_icon(app.icon))
 
@@ -965,6 +965,7 @@ class MainWindow(QMainWindow):
     def open_menu(self) -> None:
         if Sheet.current is not None:
             return
+
         def look_again() -> None:
             if self.must_stay():
                 return
@@ -1242,8 +1243,8 @@ class MainWindow(QMainWindow):
                 self.flash(f"Saves backed up ({core.human_size(archive.stat().st_size)})", ms=5000)
 
         self.run_worker(lambda _s: saves.backup(app, self.paths), finished,
-                        lambda m: (self.toast.dismiss(busy), Sheet.ask(self, "Couldn't back up the saves", m,
-                                                                        ("Close",))), kind="saves")
+                        lambda m: (self.toast.dismiss(busy),
+                                   Sheet.ask(self, "Couldn't back up the saves", m, ("Close",))), kind="saves")
 
     def restore_saves(self, app: core.App, then: Callable[[], None] = lambda: None) -> None:
         """Pick one of the program's backups and put its saves back."""

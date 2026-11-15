@@ -241,6 +241,7 @@ def close_steam_first(then: str = "☰ Menu → Installed programs → Add to St
     return ("To add it with Steam closed: in Desktop Mode, exit Steam (Steam menu → Exit), open Deckhand "
             f"from the app menu and use {then}.")
 
+
 REMOVE_IN_STEAM = "In Steam, open it and choose ⚙ → Manage → Remove non-Steam game from your library."
 
 STEAM_STATE = {"in": "In Steam", "sent": "Sent to Steam", "out": "Not in Steam"}

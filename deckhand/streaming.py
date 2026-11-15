@@ -441,7 +441,7 @@ def _browser_picker(svc: Service, baked: str, better_xcloud: bool) -> list[str]:
     q = shlex.quote
     msg = (f"{svc.name} needs a web browser and none is installed. Open Deckhand, go to Game streaming and pick "
            f"{svc.name} again to set it up.")
-    fallback = ([ 'if ! flatpak info "$B" >/dev/null 2>&1; then', f"  for c in {others}; do",
+    fallback = (['if ! flatpak info "$B" >/dev/null 2>&1; then', f"  for c in {others}; do",
                  '    if flatpak info "$c" >/dev/null 2>&1; then B="$c"; break; fi', "  done", "fi"] if others else [])
     return [f"B={q(baked)}", *fallback,
             'if ! flatpak info "$B" >/dev/null 2>&1; then',
