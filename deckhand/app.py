@@ -113,7 +113,7 @@ class MainWindow(QMainWindow):
         dupes = core.find_duplicate_shortcuts(None, self.paths.launchers)
         if dupes:
             self.flash(f"Steam has {len(dupes)} duplicate shortcut{'s' * (len(dupes) != 1)} — "
-                       "☰ Menu → Remove duplicate Steam shortcuts", ms=8000)
+                       "☰ Menu → Remove duplicate shortcuts", ms=8000)
         QTimer.singleShot(0, self.check_leftovers)
         # Quiet jobs a moment after the window is up (kept so a test can stop them: they must not fire at random).
         self.startup_timers = []
@@ -990,7 +990,7 @@ class MainWindow(QMainWindow):
             ("Check for updates", lambda: self.check_for_updates(manual=True)),
             ("Add Deckhand to Steam", self.add_self_to_steam),
             ("Free up space", self.free_up_space),
-            ("Remove duplicate Steam shortcuts", self.remove_duplicates),
+            ("Remove duplicate shortcuts", self.remove_duplicates),
             ("SteamGridDB art", self.steamgriddb_menu),
             ("Look for installers again", look_again),
             ("Light look" if theme.SCHEME == "dusk" else "Dark look", self.switch_look),

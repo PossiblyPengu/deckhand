@@ -428,23 +428,42 @@ class Sheet(QWidget):
                               " border-radius: 16px; padding: 10px 12px; font-size: 15px; }")
             box.setMinimumHeight(min(320, max(120, top.height() - 420)))
             lay.addWidget(box, 1)
-        # A long list goes in two columns (one column of 9+ doesn't fit the Deck's 800 px), the last choice — Close,
-        # Cancel — across both. The D-pad moves to the nearest button in its direction, so the grid needs nothing else.
-        grid = menu and len(buttons) > 8
-        btns = QGridLayout() if grid else QVBoxLayout() if menu else QHBoxLayout()
-        btns.setSpacing(10)
+        # A long list goes in as many columns as it takes to fit the window's height (one column of 9+ doesn't fit the
+        # Deck's 800 px, two don't fit a scaled desktop's 593), the last choice — Close, Cancel — across them all. The
+        # D-pad moves to the nearest button in its direction, so the grid needs nothing else.
         self.buttons: list[QPushButton] = []
         for i, text_ in enumerate(buttons):
             obj = "primary" if i == primary else ("danger" if i in danger else "")
             b = button(text_, obj, lambda i=i: self._pick(i))
             b.setMinimumWidth(170)
+            self.buttons.append(b)
+        cols = 1
+        if menu:
+            row_h = max(b.sizeHint().height() for b in self.buttons) + 10
+            fits = max(2, (top.height() - 40 - 30 - 22 - 64 - 16 - 8) // row_h)  # (the card's margins, heading, gaps)
+            others = len(buttons) - 1
+            while cols < 3 and -(-others // cols) + 1 > fits:
+                cols += 1
+        grid = cols > 1
+        btns = QGridLayout() if grid else QVBoxLayout() if menu else QHBoxLayout()
+        btns.setSpacing(10)
+        if grid:  # (equal columns; three of them get a smaller font, so long labels still fit)
+            for c in range(cols):
+                btns.setColumnStretch(c, 1)
+            for b in self.buttons:
+                b.setSizePolicy(QSizePolicy.Policy.Ignored, b.sizePolicy().verticalPolicy())
+                b.setMinimumWidth(0)
+                if cols > 2:
+                    b.setStyleSheet("font-size: 15px; padding-left: 10px; padding-right: 10px;")
+            if cols > 2:
+                card.setMinimumWidth(min(980, top.width() - 40))  # (all the width there is)
+        for i, b in enumerate(self.buttons):
             if grid and i == len(buttons) - 1:
-                btns.addWidget(b, (i + 1) // 2, 0, 1, 2)
+                btns.addWidget(b, -(-i // cols), 0, 1, cols)
             elif grid:
-                btns.addWidget(b, i // 2, i % 2)
+                btns.addWidget(b, i // cols, i % cols)
             else:
                 btns.addWidget(b)
-            self.buttons.append(b)
         # The buttons, with the controller's buttons beside them (the hint bar is under the dimmed window).
         foot = QHBoxLayout()
         foot.setSpacing(12)

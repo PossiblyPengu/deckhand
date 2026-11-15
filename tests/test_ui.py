@@ -1438,6 +1438,24 @@ class TestWindow(Env):
         self.pump()
         return page, page.list
 
+    def test_a_long_menu_fits_any_screen_without_buttons_overlapping(self):
+        from deckhand.widgets import Sheet
+        labels = tuple(f"Choice number {i}" for i in range(11)) + ("Close",)
+        for size in ((1280, 763), (949, 556)):  # (a Deck; a desktop scaled 1.35x)
+            self.win.resize(*size)
+            self.pump()
+            sheet = Sheet(self.win, "Menu", "", labels)
+            sheet.show()
+            self.pump(20)
+            rects = [b.geometry().translated(b.parentWidget().mapTo(sheet, b.parentWidget().rect().topLeft()))
+                     for b in sheet.buttons]
+            for i, a in enumerate(rects):
+                for b in rects[i + 1:]:
+                    self.assertFalse(a.intersects(b), f"buttons overlap at {size}")
+            self.assertTrue(all(sheet.rect().contains(r) for r in rects), f"a button is cut off at {size}")
+            sheet.close()
+            self.delete_later(sheet)
+
     def test_the_d_pad_passes_over_headings(self):
         page, lst = self._addons_list()
         lst.setFocus()

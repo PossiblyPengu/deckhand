@@ -197,7 +197,7 @@ without Steam Cloud, so they're only deleted if you choose "Delete all of it"), 
 game that any library lists counts as installed, including games on an SD card that isn't in right now; non-Steam
 shortcuts' folders are always kept.
 
-**Duplicate shortcuts:** ☰ Menu → **Remove duplicate Steam shortcuts** keeps one of each and removes the extra copies
+**Duplicate shortcuts:** ☰ Menu → **Remove duplicate shortcuts** keeps one of each and removes the extra copies
 (of any non-Steam shortcut, not just Deckhand's). Steam must be closed for this: in Desktop Mode, exit Steam
 (Steam menu → Exit), then open Deckhand from the app menu. A backup is saved as `shortcuts.vdf.before-dedupe`.
 
