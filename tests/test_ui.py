@@ -149,6 +149,19 @@ class TestWindow(Env):
         self.assertFalse(steps["proton"].done)
         self.assertIn("Proton first", steps["program"].detail)
 
+    def test_deckhand_sent_to_a_running_steam_counts_as_in_game_mode(self):
+        from deckhand import start
+        exe = self.tmp / "deckhand"
+        exe.write_text("")
+        out = {st.id: st for st in start.steps(self.paths, roots=[], exe=exe, entries=[], running=True)}["steam"]
+        self.assertFalse(out.done)
+        self.paths.remember(self_steam_requested_at=time.time() + 60)  # (Steam hasn't saved its list since)
+        sent = {st.id: st for st in start.steps(self.paths, roots=[], exe=exe, entries=[], running=True)}["steam"]
+        self.assertTrue(sent.done)
+        self.assertIn("Sent to Steam", sent.detail)
+        closed = {st.id: st for st in start.steps(self.paths, roots=[], exe=exe, entries=[], running=False)}["steam"]
+        self.assertFalse(closed.done)  # (Steam closed without saving it: it's to do again)
+
     def test_home_shows_found_installers(self):
         self.shot("1-home-empty")
         self.add_installer("setup_the_witcher_3_goty_1.32_(10709).exe")

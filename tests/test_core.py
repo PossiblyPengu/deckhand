@@ -141,6 +141,15 @@ class Env(unittest.TestCase):
     def setUp(self):
         self.env_backup = dict(os.environ)
         self.tmp = Path(tempfile.mkdtemp())
+        # Dialogs a launcher or tool would show go to a log, never to the desktop of the machine running the tests
+        # (a real one waits for a click, so the test hangs).
+        self.dialog_log = self.tmp / "dialogs.log"
+        desktop_bin = self.tmp / "desktop-bin"
+        desktop_bin.mkdir()
+        for name in ("zenity", "kdialog", "notify-send"):
+            (desktop_bin / name).write_text(f'#!/bin/bash\necho "{name} $*" >> "{self.dialog_log}"\nexit 0\n')
+            (desktop_bin / name).chmod(0o755)
+        os.environ["PATH"] = f"{desktop_bin}:{os.environ.get('PATH', '')}"
         self.paths = core.Paths(self.tmp / "data")
         # Fake Steam with one user and one Proton
         self.steam = self.tmp / "Steam"

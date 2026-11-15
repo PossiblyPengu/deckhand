@@ -32,7 +32,8 @@ def self_exe() -> Path | None:
 
 
 def steps(paths: core.Paths, roots: Iterable[Path] | None = None, home: Path | None = None,
-          exe: Path | None = None, entries: list[tuple[Path, dict]] | None = None) -> list[Step]:
+          exe: Path | None = None, entries: list[tuple[Path, dict]] | None = None,
+          running: bool | None = None) -> list[Step]:
     roots = list(core.steam_roots() if roots is None else roots)
     entries = core.steam_shortcuts(roots) if entries is None else entries
     library = core.Library(paths).load()
@@ -45,12 +46,18 @@ def steps(paths: core.Paths, roots: Iterable[Path] | None = None, home: Path | N
         stores.spots(s, entries, paths.launchers) for s in stores.STORES)
     stream = "stream" in kinds or any(streaming.spots(s, entries, paths.launchers) for s in streaming.SERVICES)
     in_steam = bool(exe and core.find_shortcut(str(exe), entries=entries))
+    # Handed to the running Steam, which hasn't saved its list since: it's there, Steam just hasn't written it down
+    # (offering to add it again would make a second copy).
+    sent_at = float(paths.state().get("self_steam_requested_at") or 0)
+    sent = bool(exe and not in_steam and sent_at and (core.steam_is_running() if running is None else running)
+                and core.shortcuts_saved_at(roots) < sent_at)
     # In the order a new Deck needs them: open Deckhand from Game Mode, the Proton that Windows games run on, then
     # games (stores first: most people have a library already), then the extras.
     return [
         Step("steam", "Deckhand in Game Mode",
              "In your Steam library: open it from Game Mode" if in_steam
-             else "Add Deckhand to your Steam library, so you can open it from Game Mode", in_steam, "stack"),
+             else "Sent to Steam: look under Non-Steam in your library (restart Steam if it isn't there)" if sent
+             else "Add Deckhand to your Steam library, so you can open it from Game Mode", in_steam or sent, "stack"),
         Step("proton", "Proton for Windows games",
              f"Ready: {protons[0].name}" if protons else "Windows games and stores run on it: get GE-Proton",
              bool(protons), "plus"),

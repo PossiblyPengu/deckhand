@@ -342,6 +342,7 @@ class TestStreamingSignInAndLauncher(FlatpakEnv):
         r = self.run_launcher(app.launcher)
         self.assertEqual(r.returncode, 1)
         self.assertIn("needs a web browser", (self.paths.logs / "stream-xbox-cloud-launch.log").read_text())
+        self.assertIn("zenity --error", self.dialog_log.read_text())  # (shown to the player, not on this desktop)
 
     def test_greenlight_installs_as_an_app(self):
         svc = streaming.service("greenlight")
