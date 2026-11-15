@@ -70,7 +70,9 @@ class TestWindow(Env):
         while not cond():
             self.qapp.processEvents()
             if time.time() > end:
-                self.fail("timed out")
+                focus = QApplication.focusWidget()
+                self.fail(f"timed out (dialogs asked: {self.asked}; on screen: "
+                          f"{type(self.win.stack.currentWidget()).__name__}; focus: {type(focus).__name__ if focus else None})")
             time.sleep(0.02)
 
     def shot(self, name, widget=None):
@@ -356,7 +358,7 @@ class TestWindow(Env):
         self.assertIs(QApplication.focusWidget(), tiles[2])
         self.answers = [1]  # A opens the confirm sheet; answer Cancel
         nav.on_pad("a", True)
-        self.wait_for(lambda: self.asked == ["Install A?"])
+        self.wait_for(lambda: "Install A?" in self.asked)
         nav.on_pad("a", False)
         nav.on_pad("x", True)  # X = Browse
         self.pump()

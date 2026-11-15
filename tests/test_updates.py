@@ -1,4 +1,5 @@
 """Updates for Deckhand and its add-ons, and telling you about them (in Game Mode too) — deckhand/updates.py."""
+import os
 import hashlib
 import json
 import sys
@@ -54,7 +55,9 @@ class TestUpdates(Env):
         self.arcadia_release("0.1.6", b"arcadia 0.1.6")
         self.check()
         self.assertEqual(len(self.paths.state()["file_hashes"]), 1)
-        self.arcadia.write_bytes(b"arcadia 0.1.6")  # (updated another way, e.g. Arcadia's own Update Arcadia)
+        new = self.arcadia.with_name("new.AppImage")  # (updated another way, e.g. Arcadia's own Update Arcadia, which
+        new.write_bytes(b"arcadia 0.1.6")             # swaps a new file in, as every updater here does)
+        os.replace(new, self.arcadia)
         self.assertEqual(self.check(), [])
         self.assertEqual(len(self.paths.state()["file_hashes"]), 1)  # (the old one is let go)
 
