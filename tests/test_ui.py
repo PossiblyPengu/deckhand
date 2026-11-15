@@ -1023,14 +1023,12 @@ class TestWindow(Env):
         return calls
 
     def _decky_text(self, page):
-        from deckhand import addons
         return self.item(page, "decky").text()  # (the rows are rebuilt on refresh)
 
     def _let_it_finish(self):
         self.wait_for(lambda: not self.win.workers)  # (a window must not go away under a running install)
 
     def _decky_row(self):
-        from deckhand import addons
         self.win.go_home()
         self.win.switch_section("addons")
         page = self.win.addons
@@ -1125,14 +1123,12 @@ class TestWindow(Env):
         self.win.switch_section("addons")
         page = self.win.addons
         page.installed = set()  # (what the background check found: nothing)
-        ids = [a.id for a in addons.ADDONS]
         self.answers = [0]  # Install
         page._activate(self.item(page, "protonup-qt"))
         self.wait_for(lambda: any(a.id == "addon-protonup-qt" for a in core.Library(self.paths).load()))
         self.assertTrue(core.steam_shortcuts([self.steam]))  # openable from Game Mode
 
     def test_a_desktop_tool_installed_on_the_desktop_stays_in_the_app_menu(self):
-        from deckhand import addons
         self._fake_flatpak()
         for key in ("SteamGamepadUI", "XDG_CURRENT_DESKTOP", "GAMESCOPE_WAYLAND_DISPLAY"):
             os.environ.pop(key, None)
@@ -1647,13 +1643,14 @@ class TestWindow(Env):
     def test_addons_page_installs_flathub_apps_and_ge_proton(self):
         import hashlib
         import json
-        from deckhand import addons, proton, updater
+        from deckhand import proton, updater
         from tests.test_addons import FakeResponse
         from tests.test_proton import ge_tarball
         self.use_fake_flatpak()
         self.win.show_addons()
         page = self.win.addons
         self.wait_for(lambda: page.installed is not None)
+
         def item(key):  # (looked up again each time: the rows are rebuilt when the page refreshes)
             return self.item(page, key)
         discord, flatseal, ge = "discord", "flatseal", "ge-proton"
