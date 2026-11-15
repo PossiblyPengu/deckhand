@@ -185,6 +185,15 @@ class TestWindow(Env):
         self.assertEqual(self.win.hub.cards["addons"].detail, "Arcadia, Decky, Proton, Nexus")
         self.assertEqual(updates.available(self.paths), [])
 
+    def test_back_on_the_home_screen_picks_the_section_you_left(self):
+        self.win.switch_section("stream")
+        self.pump()
+        self.win.stack.currentWidget().back()
+        self.pump()
+        self.assertIs(self.win.stack.currentWidget(), self.win.hub)
+        self.assertTrue(self.win.hub.cards["stream"].hasFocus() or
+                        self.win.focusWidget() is self.win.hub.cards["stream"])
+
     def test_home_shows_found_installers(self):
         self.shot("1-home-empty")
         self.add_installer("setup_the_witcher_3_goty_1.32_(10709).exe")

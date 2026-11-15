@@ -152,6 +152,10 @@ class HubPage(Page):
 
     def enter(self) -> None:
         self.refresh()
+        came_from, self.came_from = getattr(self, "came_from", None), None
+        if came_from in self.cards:
+            self.cards[came_from].setFocus()
+            return
         first_run = self.cards["start"].detail != "All set up"
         (self.cards["start"] if first_run else self.cards["install"]).setFocus()
 

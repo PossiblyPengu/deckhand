@@ -69,5 +69,8 @@ echo "To use it from Game Mode, open Deckhand and pick ☰ Menu → \"Add Deckha
 
 if [ "${1:-}" = "--with-arcadia" ]; then
   echo ""
-  "$BIN_DIR/deckhand" --add-arcadia || echo "  (Arcadia can be added later from Deckhand: Add-ons → Arcadia)"
+  # (Deckhand's bundled font library reads SteamOS's newer font settings and warns about each line it doesn't know:
+  # harmless, so those lines are left out. Anything else it says still shows.)
+  "$BIN_DIR/deckhand" --add-arcadia 2> >(grep -v '^Fontconfig warning' >&2) \
+    || echo "  (Arcadia can be added later from Deckhand: Add-ons → Arcadia)"
 fi

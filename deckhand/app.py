@@ -195,7 +195,9 @@ class MainWindow(QMainWindow):
         self.go(self.home)
 
     def go_hub(self) -> None:
-        """The front door: the six sections."""
+        """The front door: the six sections, with the one you just left picked (so B and A take you straight back)."""
+        if self.stack.currentWidget() is not self.hub:
+            self.hub.came_from = self.section_of(self.stack.currentWidget())
         self.go(self.hub)
 
     def show_start(self) -> None:
