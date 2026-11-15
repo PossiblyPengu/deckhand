@@ -496,6 +496,24 @@ class TestWindow(Env):
         self.assertIs(self.win.stack.currentWidget(), self.win.home)
         self.assertFalse(self.win.home.manage_btn.isVisible())
 
+    def test_a_program_can_run_with_another_proton(self):
+        import shutil
+        inst = self.add_installer("Cool Game Setup.exe", 10)
+        self.win.start_install(inst)
+        self.wait_for(lambda: self.win.stack.currentWidget() is self.win.done)
+        newer = self.steam / "compatibilitytools.d/GE-Proton10-25"
+        shutil.copytree(self.proton.parent, newer)
+        self.win.show_installed()
+        page = self.win.installed
+        app = core.Library(self.paths).load()[0]
+        self.assertEqual(app.runtime_name, "GE-Proton9-20")
+        self.answers = [2, 0]  # Proton version; GE-Proton10-25 (the newest, listed first)
+        page._activate(page.list.item(0))
+        self.assertEqual(self.asked[-1], "Proton for Cool Game")
+        app = core.Library(self.paths).load()[0]
+        self.assertEqual((app.runtime_name, app.runtime_path), ("GE-Proton10-25", str(newer / "proton")))
+        self.assertIn(str(newer / "proton"), Path(app.launcher).read_text())
+
     def test_fix_it_installs_a_runtime_into_the_program(self):
         from deckhand import updater
         from tests.test_addons import FakeResponse

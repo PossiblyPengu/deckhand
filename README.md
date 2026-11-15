@@ -170,6 +170,8 @@ to remove them or add them back to Steam. Pick one to:
   what it needs into its own Windows setup: the Visual C++ runtimes, the .NET version it was built on (read from its
   own files), or DirectX 9's extra files. Deckhand downloads Microsoft's installers and runs them silently with the
   program's Proton; what happened goes to `logs/<name>-fix.log`.
+- **Proton version:** run the program with another Proton installed on the Deck (GE-Proton, Experimental, an
+  older one); its launcher is rewritten. A newer one usually works better.
 - **Back up saves** / **Restore saves:** games keep their saves in the Windows user's folders (Documents, Saved Games,
   AppData), inside the program's Windows setup. A backup zips those (without caches) into `save-backups/`; the five
   newest per program are kept. When you install a program again, the last screen offers its saves back.

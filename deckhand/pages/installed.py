@@ -162,6 +162,7 @@ class InstalledPage(Page):
         if app.kind == "program":
             actions += [("Uninstall", lambda: self.win.uninstall(app, self.sizes.get(app.id))),
                         ("Fix it: install what it's missing", lambda: self._fix(app)),
+                        *([("Proton version", lambda: self._choose_proton(app))] if app.runtime_kind == "proton" else []),
                         ("Back up saves", lambda: self.win.back_up_saves(app))]
             if saves.backups(self.win.paths, app.name):
                 actions.append(("Restore saves", lambda: self.win.restore_saves(app)))
@@ -172,6 +173,32 @@ class InstalledPage(Page):
                            danger=(uninstall,))
         if 0 <= choice < len(actions) and actions[choice][1] is not None:
             actions[choice][1]()
+
+    def _choose_proton(self, app: core.App) -> None:
+        """Run the program with another Proton (GE-Proton, Experimental, an older one): its launcher is rewritten."""
+        protons = [r for r in core.find_runtimes(include_system_wine=False) if r.is_proton][:8]
+        if not protons:
+            Sheet.ask(self, "Proton version", "No Proton is installed. Install Proton Experimental from Steam, or "
+                      "GE-Proton from Tools.", ("Close",))
+            return
+        labels = [f"{r.name}  (now)" if r.path == app.runtime_path else r.name for r in protons]
+        now = next((i for i, r in enumerate(protons) if r.path == app.runtime_path), len(protons))
+        choice = Sheet.ask(self, f"Proton for {app.name}", f"{app.name} runs with {app.runtime_name or 'Proton'}. "
+                           "A newer one usually works better; going back to an older one can upset a program's "
+                           "Windows setup.", (*labels, "Cancel"), primary=now)
+        if not 0 <= choice < len(protons) or protons[choice].path == app.runtime_path:
+            return
+        rt = protons[choice]
+        app.runtime_name, app.runtime_kind, app.runtime_path = rt.name, rt.kind, rt.path
+        roots = core.steam_roots()
+        try:
+            core.write_launcher(app, self.win.paths, roots[0] if roots else None, roots)
+        except OSError as e:
+            Sheet.ask(self, "Couldn't change it", str(e), ("Close",))
+            return
+        self.win.library.upsert(app)
+        self.win.flash(f"{app.name} now runs with {rt.name}", ms=5000)
+        self.refresh()
 
     def _fix(self, app: core.App) -> None:
         """Install a runtime the program is missing into its prefix."""
