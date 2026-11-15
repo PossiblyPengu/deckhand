@@ -288,7 +288,7 @@ class MainWindow(QMainWindow):
     def confirm_install(self, installer: Path) -> bool:
         """Ask, then install. True if an install was started."""
         if self.thread is not None or self.pending is not None or self.update_thread is not None \
-                or any(getattr(w, "kind", "") != "unpack" for w in self.workers):  # (opening an archive leads here)
+                or any(getattr(w, "kind", "") not in ALONGSIDE_INSTALL for w in self.workers):
             self.flash("Finish what's running first")
             return False
         if installer.suffix.lower() in core.ARCHIVE_SUFFIXES:
@@ -1534,6 +1534,13 @@ class MainWindow(QMainWindow):
         if self.nav:
             self.nav.stop()
         event.accept()
+
+
+# Background jobs an install can start alongside: they only read, or touch what an install never does (opening an
+# archive leads to an install; the others check what's installed, look for updates, rewrite launchers, fetch art or
+# update Steam's shortcuts). Anything else — another install, an uninstall, a fix — makes it wait.
+ALONGSIDE_INSTALL = frozenset({"unpack", "flatpaks", "store-flatpaks", "addon-flatpaks", "addon-updates", "launchers",
+                               "art", "better-xcloud", "leftovers", "steam"})
 
 
 def update_better_xcloud_cli(force: bool = False, out=print, fetch=None) -> int:

@@ -320,6 +320,29 @@ class TestWindow(Env):
         self.key(Qt.Key.Key_Escape)  # B at a top-level place goes back home
         self.assertIs(self.win.stack.currentWidget(), self.win.home)
 
+    def test_an_install_starts_while_deckhand_checks_things_in_the_background(self):
+        # (On a slow machine the background checks are still running when you pick an installer: no "Finish what's
+        # running first" for those. A job that would clash, like an uninstall, still makes it wait.)
+        installer = self.add_installer("a.exe", 10)
+
+        class Job:
+            def __init__(self, kind):
+                self.kind = kind
+
+            def wait(self, _ms=0):
+                return True
+        for kind in ("flatpaks", "addon-updates", "launchers"):
+            self.win.workers.add(Job(kind))
+        self.answers = [1]  # Cancel
+        self.assertFalse(self.win.confirm_install(installer))
+        self.assertEqual(self.asked[-1:], ["Install A?"])
+        clash = Job("uninstall")
+        self.win.workers.add(clash)
+        self.asked.clear()
+        self.assertFalse(self.win.confirm_install(installer))
+        self.assertEqual(self.asked, [])
+        self.win.workers.clear()
+
     def test_gamepad_actions(self):
         for n in ("a.exe", "b.exe"):
             self.add_installer(n, 10)
