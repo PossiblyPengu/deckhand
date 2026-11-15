@@ -179,7 +179,7 @@ class AddonsPage(Page):
             have = proton.installed()
             use = ("Deckhand uses it for new installs straight away. For a Steam game, restart Steam, then pick it "
                    "under ⚙ → Properties → Compatibility.")
-            if release.version in have:
+            if proton.has(release.version, have):
                 Sheet.ask(self, "GE-Proton", f"{release.version}, the newest, is installed. {use}", ("Close",))
                 return
             size = f" ({core.human_size(release.size)})" if release.size else ""
@@ -214,7 +214,10 @@ class AddonsPage(Page):
             core.record_download(self.win.paths, "GE-Proton", release.version,
                                  {"url": release.url, "algo": "sha512", "sha": "(from its .sha512sum file)",
                                   "verified": True})
-            self.win.flash(f"{release.version} is installed", ms=5000)
+            # (An older Deckhand installed the ARM build of GE-Proton 11, which can't run here: it goes now.)
+            gone = proton.remove_foreign()
+            extra = f" (removed {', '.join(gone)}, a build for another kind of processor)" if gone else ""
+            self.win.flash(f"{release.version} is installed{extra}", ms=7000)
             self.win.addon_updated("ge-proton")
             self.refresh()
 

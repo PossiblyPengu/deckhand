@@ -116,8 +116,9 @@ def check_ge_proton(roots=None, fetch=None) -> Found | None:
     if not have:
         return None
     latest = proton.latest(fetch).version
-    if latest and latest not in have and updater.is_newer(latest, have[0]):
-        return Found("ge-proton", "GE-Proton", latest, have[0])
+    if latest and not proton.has(latest, have) and updater.is_newer(proton.base_name(latest),
+                                                                     proton.base_name(have[0])):
+        return Found("ge-proton", "GE-Proton", proton.base_name(latest), have[0])
     return None
 
 

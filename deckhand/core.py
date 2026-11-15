@@ -103,6 +103,9 @@ def clean_env() -> dict[str, str]:
     program it starts would print "cannot be preloaded (wrong ELF class)" for the one that doesn't fit, into logs
     and dialogs)."""
     env = os.environ.copy()
+    # Started from a terminal inside an Electron editor (VS Code and the like), Deckhand inherits this, and every
+    # Electron app it opens (Heroic, Discord, itch…) would run as plain Node.js and quit at once, silently.
+    env.pop("ELECTRON_RUN_AS_NODE", None)
     preload = env.get("LD_PRELOAD")
     if preload:
         kept = [p for p in re.split(r"[\s:]+", preload) if p and "gameoverlayrenderer" not in p]
@@ -300,6 +303,11 @@ def container_entry_point(proton_script: Path, roots: Iterable[Path] | None = No
     appid = required_container_appid(proton_script)
     if appid is None:
         return None
+    return container_installed(appid, roots)
+
+
+def container_installed(appid: int, roots: Iterable[Path] | None = None) -> Path | None:
+    """The entry point of that Steam Linux Runtime, once Steam has installed it (else None)."""
     for root in steam_roots() if roots is None else roots:
         for lib in steam_library_dirs(root):
             names: list[str] = []

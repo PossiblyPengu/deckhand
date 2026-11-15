@@ -137,6 +137,19 @@ echo "installed $2"
 """
 
 
+class TestCleanEnv(unittest.TestCase):
+    def test_an_editors_electron_setting_doesnt_reach_the_apps_deckhand_opens(self):
+        old = os.environ.get("ELECTRON_RUN_AS_NODE")
+        os.environ["ELECTRON_RUN_AS_NODE"] = "1"
+        try:
+            self.assertNotIn("ELECTRON_RUN_AS_NODE", core.clean_env())
+        finally:
+            if old is None:
+                os.environ.pop("ELECTRON_RUN_AS_NODE", None)
+            else:
+                os.environ["ELECTRON_RUN_AS_NODE"] = old
+
+
 class Env(unittest.TestCase):
     def setUp(self):
         self.env_backup = dict(os.environ)

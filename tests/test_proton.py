@@ -40,6 +40,35 @@ class TestGEProton(Env):
                  "https://example.invalid/ge.tar.gz": tar}
         return (lambda url: files[url]), (lambda url: FakeResponse(files[url]))
 
+    def test_a_release_with_builds_for_two_processors_gives_this_ones(self):
+        # GE-Proton 11 lists the ARM build first: an x86 Deck must get the x86_64 one, with its own checksum.
+        release = {"tag_name": "GE-Proton11-12", "assets": [
+            {"name": "GE-Proton11-12-aarch64.sha512sum", "browser_download_url": "https://e/arm.sha512sum"},
+            {"name": "GE-Proton11-12-aarch64.tar.gz", "browser_download_url": "https://e/arm.tar.gz", "size": 1},
+            {"name": "GE-Proton11-12-x86_64.sha512sum", "browser_download_url": "https://e/x86.sha512sum"},
+            {"name": "GE-Proton11-12-x86_64.tar.gz", "browser_download_url": "https://e/x86.tar.gz", "size": 2}]}
+        fetch = lambda url: json.dumps(release).encode()  # noqa: E731
+        got = proton.latest(fetch, arch="x86_64")
+        self.assertEqual((got.version, got.url, got.sha512_url),
+                         ("GE-Proton11-12-x86_64", "https://e/x86.tar.gz", "https://e/x86.sha512sum"))
+        self.assertEqual(proton.latest(fetch, arch="aarch64").url, "https://e/arm.tar.gz")
+
+    def test_a_build_for_another_processor_doesnt_count_and_is_cleaned_up(self):
+        tools = self.steam / "compatibilitytools.d"
+        arm = tools / "GE-Proton11-12-aarch64"
+        (arm / "files/bin").mkdir(parents=True)
+        (arm / "proton").write_text("")
+        (arm / "toolmanifest.vdf").write_text('"manifest"\n{\n  "commandline" "/proton %verb%"\n}\n')
+        self.assertNotIn("GE-Proton11-12-aarch64", proton.installed([self.steam]))
+        self.assertEqual(proton.remove_foreign([self.steam]), ["GE-Proton11-12-aarch64"])
+        self.assertFalse(arm.exists())
+        self.assertTrue((tools / "GE-Proton9-20").exists())  # (the one that runs here stays)
+
+    def test_the_same_version_with_or_without_its_processor_in_the_name(self):
+        self.assertTrue(proton.has("GE-Proton11-12-x86_64", ["GE-Proton11-12"]))
+        self.assertTrue(proton.has("GE-Proton11-12", ["GE-Proton11-12-x86_64"]))
+        self.assertFalse(proton.has("GE-Proton11-13-x86_64", ["GE-Proton11-12"]))
+
     def test_the_newest_release_is_installed_where_steam_and_deckhand_find_it(self):
         fetch, opener = self.serve(ge_tarball())
         release = proton.latest(fetch)

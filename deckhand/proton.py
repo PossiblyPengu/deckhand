@@ -29,27 +29,89 @@ class Release:
     sha512_url: str = ""
 
 
+# Builds for other processors, by the names releases give them (GE-Proton 11 publishes x86_64 and aarch64 side by side).
+OTHER_ARCHES = {"x86_64": ("aarch64", "arm64", "armhf", "arm"), "aarch64": ("x86_64", "amd64", "i386", "x86")}
+
+
+def machine() -> str:
+    import platform
+
+    m = platform.machine().lower()
+    return "aarch64" if m in ("aarch64", "arm64") else "x86_64"
+
+
+def _foreign(name: str, arch: str | None = None) -> bool:
+    """Is this a build for another processor than this one (or `arch`)?"""
+    low = name.lower()
+    return any(re.search(rf"[-_.]{re.escape(other)}(?:$|[-_.])", low) for other in OTHER_ARCHES[arch or machine()])
+
+
 def _is_ge(name: str) -> bool:
     low = name.lower()
     return "ge-proton" in low or re.match(r"proton-.*-ge-\d", low) is not None
 
 
 def installed(roots: Iterable[Path] | None = None) -> list[str]:
-    """GE-Proton versions in Steam's compatibility tools folders, newest first."""
-    names = {r.name for r in core.find_runtimes(roots, include_system_wine=False) if _is_ge(r.name)}
+    """GE-Proton versions in Steam's compatibility tools folders that run here, newest first. (A build for another
+    processor is left out: it can't start a game.)"""
+    names = {r.name for r in core.find_runtimes(roots, include_system_wine=False) if _is_ge(r.name)
+             and not _foreign(r.name)}
     return sorted(names, key=core._version_key, reverse=True)
 
 
-def latest(fetch: Callable[[str], bytes] | None = None) -> Release:
+def base_name(name: str) -> str:
+    """A GE-Proton version without its processor ("GE-Proton11-12-x86_64" and "GE-Proton11-12" are the same one)."""
+    return re.sub(r"[-_.](?:x86_64|amd64|aarch64|arm64)$", "", name, flags=re.I)
+
+
+def has(version: str, have: Iterable[str]) -> bool:
+    return base_name(version) in {base_name(h) for h in have}
+
+
+def remove_foreign(roots: Iterable[Path] | None = None) -> list[str]:
+    """Delete GE-Proton folders built for another processor (they can't run a game here). Returns their names."""
+    gone = []
+    for p in foreign_builds(roots):
+        try:
+            shutil.rmtree(p)
+            gone.append(p.name)
+        except OSError:
+            pass
+    return gone
+
+
+def foreign_builds(roots: Iterable[Path] | None = None) -> list[Path]:
+    """GE-Proton folders built for another processor (an older Deckhand installed the ARM build of GE-Proton 11)."""
+    roots = list(core.steam_roots() if roots is None else roots)
+    out = []
+    for root in roots:
+        folder = root / "compatibilitytools.d"
+        try:
+            out += [p for p in folder.iterdir() if p.is_dir() and _is_ge(p.name) and _foreign(p.name)]
+        except OSError:
+            pass
+    return out
+
+
+def latest(fetch: Callable[[str], bytes] | None = None, arch: str | None = None) -> Release:
+    """The latest GE-Proton built for this processor, and its checksum file."""
+    arch = arch or machine()
     data = json.loads((fetch or (lambda url: updater.fetch(url, timeout=30)))(RELEASES_API))
     assets = [a for a in data.get("assets", []) if isinstance(a, dict)]
-    tar = next((a for a in assets if str(a.get("name", "")).endswith(".tar.gz")), None)
+    tars = [a for a in assets if str(a.get("name", "")).endswith(".tar.gz") and not _foreign(str(a["name"]), arch)]
+    # (The one named for this processor first, then one named for none: releases before 11 had a single build.)
+    tars.sort(key=lambda a: arch not in str(a["name"]).lower())
+    tar = tars[0] if tars else None
     if tar is None:
-        raise core.InstallError("Couldn't find GE-Proton's download in its latest release. Try again later.")
+        raise core.InstallError("Couldn't find GE-Proton's download for this Deck in its latest release. Try again "
+                                "later.")
+    stem = str(tar["name"])[:-len(".tar.gz")]
     sha = next((str(a.get("browser_download_url", "")) for a in assets
-                if str(a.get("name", "")).endswith(".sha512sum")), "")
-    return Release(str(tar["name"])[:-len(".tar.gz")], str(tar.get("browser_download_url", "")),
-                   int(tar.get("size") or 0), sha)
+                if str(a.get("name", "")) == f"{stem}.sha512sum"), "")
+    if not sha:  # (an older release names one checksum file for its one build)
+        sha = next((str(a.get("browser_download_url", "")) for a in assets
+                    if str(a.get("name", "")).endswith(".sha512sum") and not _foreign(str(a["name"]), arch)), "")
+    return Release(stem, str(tar.get("browser_download_url", "")), int(tar.get("size") or 0), sha)
 
 
 def install(release: Release, roots: Iterable[Path] | None = None,

@@ -379,7 +379,44 @@ class MainWindow(QMainWindow):
         if self.thread:
             self.thread.job.continue_now()
 
+    def wait_for_runtime(self, appid: int) -> None:
+        """Steam is downloading the Steam Linux Runtime the install needs: wait for it on the install screen (with
+        Cancel), then carry on with the same installer, instead of asking for the install to be started again."""
+        installer, name = self.current_installer, self.current_name
+        quiet = getattr(self, "current_quiet", False)
+        self.progress.reset(installer, name)
+        self.go(self.progress)
+        self.progress.status.setText("Waiting for Steam to download the Steam Linux Runtime… (choose Install in "
+                                     "Steam's window if it's asking). The install carries on by itself.")
+        started = time.time()
+        timer = QTimer(self)
+        self.runtime_wait = timer
+
+        def check() -> None:
+            if core.container_installed(appid) is not None:
+                timer.stop()
+                self.runtime_wait = None
+                self.flash("The Steam Linux Runtime is ready: installing now")
+                self.start_install(installer, name=name, quiet=quiet)
+            elif time.time() - started > 45 * 60:
+                timer.stop()
+                self.runtime_wait = None
+                self.go_home()
+                Sheet.ask(self, "Still waiting for Steam", "The Steam Linux Runtime hasn't finished downloading. "
+                          "Check Steam's Downloads, then run the install again.", ("Close",))
+
+        timer.timeout.connect(check)
+        timer.start(4000)
+
     def cancel_install(self) -> None:
+        if getattr(self, "runtime_wait", None) is not None:  # (waiting for Steam, nothing running yet)
+            self.runtime_wait.stop()
+            self.runtime_wait = None
+            self.progress.stop()
+            self.drop_download(self.current_installer)
+            self.go_home()
+            self.flash("Install cancelled")
+            return
         if not self.thread:
             return
         if Sheet.ask(self, "Cancel the install?", "The installer is closed and everything it installed so far "
@@ -421,15 +458,19 @@ class MainWindow(QMainWindow):
             choice = Sheet.ask(self, "One more Steam download needed",
                                "Proton runs inside the Steam Linux Runtime, which isn't installed yet. Without "
                                "it, installers often can't download anything.\n\nSteam can install it (a few "
-                               "hundred MB). Run the install again when it's done.",
+                               "hundred MB). Steam asks twice: choose Install both times (the shortcut boxes can "
+                               "be unticked, a runtime doesn't need them). The install here carries on by itself "
+                               "when it's done.",
                                ("Install it", "Continue without it", "Cancel"))
             if choice == 1 and self.current_installer:
                 self.start_install(self.current_installer, allow_no_container=True, name=self.current_name,
                                    quiet=getattr(self, "current_quiet", False))
                 return
-            self.drop_download(self.current_installer)
-            if choice == 0:
+            if choice == 0 and self.current_installer:
                 QDesktopServices.openUrl(QUrl(f"steam://install/{appid}"))
+                self.wait_for_runtime(int(appid))
+                return
+            self.drop_download(self.current_installer)
             return
         head, _, rest = message.partition("\n\n")
         Sheet.ask(self, "Install failed", head, ("Close",), detail=rest)

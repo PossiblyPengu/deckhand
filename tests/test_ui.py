@@ -194,6 +194,51 @@ class TestWindow(Env):
         self.assertTrue(self.win.hub.cards["stream"].hasFocus() or
                         self.win.focusWidget() is self.win.hub.cards["stream"])
 
+    def test_a_missing_steam_runtime_is_waited_for_then_the_install_carries_on(self):
+        from PyQt6.QtGui import QDesktopServices
+        installer = self.add_installer("EAappInstaller.exe", 10)
+        opened, started, ready = [], [], []
+        orig_open, orig_ready, orig_start = QDesktopServices.openUrl, core.container_installed, self.win.start_install
+        QDesktopServices.openUrl = staticmethod(lambda url: opened.append(url.toString()) or True)
+        core.container_installed = lambda appid, roots=None: (self.tmp / "entry") if ready else None
+        self.win.start_install = lambda inst, **kw: started.append((inst, kw))
+        try:
+            self.win.current_installer, self.win.current_name = installer, "EA app"
+            self.answers = [0]  # Install it
+            self.win.on_failed("NO_CONTAINER:3810310")
+            self.assertEqual(opened, ["steam://install/3810310"])
+            self.assertIs(self.win.stack.currentWidget(), self.win.progress)
+            self.assertIn("Waiting for Steam", self.win.progress.status.text())
+            self.assertTrue(installer.exists())  # (kept for when the runtime is there)
+            self.win.runtime_wait.timeout.emit()
+            self.assertEqual(started, [])
+            ready.append(True)
+            self.win.runtime_wait.timeout.emit()
+            self.assertEqual([i for i, _kw in started], [installer])
+            self.assertEqual(started[0][1]["name"], "EA app")
+            self.assertIsNone(self.win.runtime_wait)
+        finally:
+            QDesktopServices.openUrl, core.container_installed = orig_open, orig_ready
+            self.win.start_install = orig_start
+
+    def test_waiting_for_the_steam_runtime_can_be_cancelled(self):
+        from PyQt6.QtGui import QDesktopServices
+        installer = self.win.paths.downloads / "EAappInstaller.exe"
+        installer.parent.mkdir(parents=True, exist_ok=True)
+        installer.write_bytes(b"MZ")
+        orig_open = QDesktopServices.openUrl
+        QDesktopServices.openUrl = staticmethod(lambda url: True)
+        try:
+            self.win.current_installer, self.win.current_name = installer, "EA app"
+            self.answers = [0]
+            self.win.on_failed("NO_CONTAINER:3810310")
+            self.win.cancel_install()
+            self.assertIsNone(self.win.runtime_wait)
+            self.assertIs(self.win.stack.currentWidget(), self.win.home)
+            self.assertFalse(installer.exists())  # (Deckhand's own download goes)
+        finally:
+            QDesktopServices.openUrl = orig_open
+
     def test_home_shows_found_installers(self):
         self.shot("1-home-empty")
         self.add_installer("setup_the_witcher_3_goty_1.32_(10709).exe")
