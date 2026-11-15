@@ -2040,8 +2040,8 @@ class TestWindow(Env):
         self.assertLessEqual(tops[-1].bottom(), self.win.height() - self.win.hint_bar.height())  # above the hint bar
         self.win.flash("Couldn't reach Steam — Close Steam and try again", ms=60000)
         n = toast.notices[-1][0]
-        self.assertEqual((n.title.text(), n.more.text(), n.badge.tone), ("Couldn't reach Steam", "Close Steam and try again",
-                                                                          "warning"))
+        self.assertEqual((n.title.text(), n.more.text(), n.badge.tone),
+                         ("Couldn't reach Steam", "Close Steam and try again", "warning"))
         self.assertEqual(toast.text(), "Couldn't reach Steam — Close Steam and try again")
 
     def test_a_notification_goes_away_by_itself(self):
@@ -2095,6 +2095,95 @@ class TestWindow(Env):
         self.pump(10)
         self.shot("7-sheet", self.win)  # the overlay composited over the window
         s.close()
+
+    # ── The Add-ons page's actions for Arcadia and Nexus Launcher: download, open, update, add to Steam, uninstall.
+    # Downloads come from faked GitHub releases (tests/test_addons.py).
+
+    def _addons_page(self):
+        from deckhand import addons
+        from tests.test_addons import ARCADIA_BODY, NEXUS_BODY, FakeResponse, arcadia_release, nexus_fetch
+        self.addons = addons
+        self._orig = (addons.download_arcadia, addons.download_nexus, addons.open_arcadia, addons.open_nexus)
+        self.opened = []
+        real_arcadia, real_nexus = addons.download_arcadia, addons.download_nexus
+        addons.download_arcadia = lambda progress=lambda d, t: None, **kw: real_arcadia(
+            progress, fetch=lambda url: arcadia_release(), opener=lambda url: FakeResponse(ARCADIA_BODY),
+            info=kw.get("info"))
+        addons.download_nexus = lambda progress=lambda d, t: None, **kw: real_nexus(
+            progress, fetch=nexus_fetch(), opener=lambda url: FakeResponse(NEXUS_BODY), info=kw.get("info"),
+            note=kw.get("note", lambda s: None))
+        addons.open_arcadia = lambda home=None: self.opened.append("arcadia")
+        addons.open_nexus = lambda home=None: self.opened.append("nexus")
+
+        def restore():
+            addons.download_arcadia, addons.download_nexus, addons.open_arcadia, addons.open_nexus = self._orig
+        self.addCleanup(restore)
+        self.win.show_addons()
+        self.page = self.win.addons
+
+    def _addon_row(self, addon_id):
+        return next(self.page.list.item(i) for i in range(self.page.list.count())
+                    if self.page.list.item(i).data(Qt.ItemDataRole.UserRole) == addon_id)
+
+    def _choose(self, addon_id, *answers):
+        self.answers = list(answers)
+        self.page._activate(self._addon_row(addon_id))
+
+    def test_arcadia_download_open_and_uninstall(self):
+        self._addons_page()
+        self._choose("arcadia", 0)  # Download Arcadia
+        self.assertEqual(self.asked[-1], "Arcadia")
+        self.wait_for(lambda: self.addons.arcadia_app() is not None and not self.win.workers)
+        self.assertTrue(any(a.id == "addon-arcadia" for a in core.Library(self.paths).load()))
+        self.assertIn("Installed (0.1.0)", self._addon_row("arcadia").text())
+        self._choose("arcadia", 0)  # Open Arcadia
+        self.assertEqual(self.opened, ["arcadia"])
+        sheet_actions = []
+        from deckhand.widgets import Sheet
+        Sheet.ask = staticmethod(lambda parent, title, text="", buttons=(), **k: (
+            self.asked.append(title), sheet_actions.append(buttons),
+            list(buttons).index("Uninstall") if "Uninstall" in buttons else 0)[-1])
+        self.page._activate(self._addon_row("arcadia"))
+        self.assertIn("Remove from Steam", sheet_actions[0])  # (it's in Steam: Deckhand put it there)
+        self.wait_for(lambda: self.addons.arcadia_app() is None and not self.win.workers)
+        self.assertFalse(any(a.id == "addon-arcadia" for a in core.Library(self.paths).load()))
+        self.assertEqual(core.steam_shortcuts([self.steam]), [])
+
+    def test_arcadia_with_an_update_offers_it_first(self):
+        self._addons_page()
+        from deckhand import updates
+        self._choose("arcadia", 0)
+        self.wait_for(lambda: self.addons.arcadia_app() is not None and not self.win.workers)
+        self.win.addon_updates["arcadia"] = updates.Found("arcadia", "Arcadia", "0.2.0")
+        buttons = []
+        from deckhand.widgets import Sheet
+        Sheet.ask = staticmethod(lambda parent, title, text="", b=(), **k: (buttons.append((text, b)), -1)[1])
+        self.page._activate(self._addon_row("arcadia"))
+        text, offered = buttons[0]
+        self.assertTrue(text.startswith("Arcadia 0.2.0 is out."))
+        self.assertEqual(offered[0], "Update to 0.2.0")
+
+    def test_nexus_download_add_to_steam_and_uninstall(self):
+        self._addons_page()
+        self._choose("nexus", 0)  # Download Nexus Launcher
+        self.assertEqual(self.asked[-1], "Xbox PC games")
+        self.wait_for(lambda: self.addons.nexus_app() is not None and not self.win.workers)
+        self.assertTrue(any(a.id == "addon-nexus" for a in core.Library(self.paths).load()))
+        self._choose("nexus", 0)  # Open Nexus Launcher
+        self.assertEqual(self.opened, ["nexus"])
+        # Removed from Steam, it offers Add to Steam again; then Uninstall.
+        app = next(a for a in core.Library(self.paths).load() if a.id == "addon-nexus")
+        self.answers = [0]  # Remove
+        self.win.uninstall(app)
+        self.wait_for(lambda: not self.win.workers)
+        self.page.refresh()
+        offered = []
+        from deckhand.widgets import Sheet
+        Sheet.ask = staticmethod(lambda parent, title, text="", b=(), **k: (
+            offered.append(b), list(b).index("Uninstall") if "Uninstall" in b else 0)[-1])
+        self.page._activate(self._addon_row("nexus"))
+        self.assertIn("Add to Steam", offered[0])
+        self.wait_for(lambda: self.addons.nexus_app() is None and not self.win.workers)
 
 
 if __name__ == "__main__":
