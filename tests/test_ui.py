@@ -1116,7 +1116,6 @@ class TestWindow(Env):
         self.assertIn("Wipe Decky Loader?", self.asked)
 
     def test_a_desktop_tool_installed_in_game_mode_is_added_to_steam(self):
-        from deckhand import addons
         self._fake_flatpak()
         os.environ["XDG_CURRENT_DESKTOP"] = "gamescope"
         self.win.go_home()
