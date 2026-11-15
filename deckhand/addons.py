@@ -48,15 +48,40 @@ class Addon:
     steam: bool = False  # (a Flathub app) also added to Steam, to use it in Game Mode
 
     @property
+    def section(self) -> str:
+        """Where it's listed: "stores" (the Games section: a way to get games) or "addons" (Tools)."""
+        return "stores" if self.id in GAME_ADDONS else "addons"
+
+    @property
+    def where(self) -> str:
+        """How to find it in Deckhand, as said in messages: "Games → Arcadia", "Tools → Decky Loader"."""
+        return f"{SECTION_TITLES[self.section]} → {self.name}"
+
+    @property
     def service(self) -> streaming.Service:
         """A Flathub add-on, as the streaming code sets it up."""
         return streaming.Service(self.id, self.name, self.blurb, app=self.app, color=self.color)
 
 
+# The two sections that list add-ons, and how each groups them under headings (ids of add-ons and stores, in order).
+SECTION_TITLES = {"stores": "Games", "addons": "Tools"}
+GAME_ADDONS = ("arcadia", "nexus", "lutris")  # ways to get games: listed under Games, with the stores
+GAMES_LAYOUT = (
+    ("Retro games", ("addon:arcadia",)),
+    ("Game launchers", ("store:heroic", "addon:lutris", "store:itch", "store:prism")),
+    ("Xbox PC games", ("addon:nexus",)),
+    ("Windows stores", ("store:battlenet", "store:ea", "store:ubisoft", "store:epic", "store:amazon", "store:rockstar")),
+)
+TOOLS_LAYOUT = (
+    ("Make games run", ("addon:ge-proton", "addon:protonup-qt", "addon:protontricks", "addon:bottles")),
+    ("Deck tools", ("addon:decky", "addon:flatseal", "addon:ludusavi")),
+    ("Apps", ("addon:discord",)),
+)
+
 ADDONS = (
     Addon("arcadia", "Arcadia", "Deckhand's sister app: your retro games, with emulators, BIOS check and cloud saves",
           "GitHub", "#cdbdf0"),
-    Addon("nexus", "Xbox PC games (Nexus Launcher)",
+    Addon("nexus", "Nexus Launcher",
           "Your Xbox and Game Pass PC games, built on Xodus. New and experimental", "GitHub", "#107c10"),
     Addon("decky", "Decky Loader", "Plugins for the Quick Access menu", "decky.xyz", "#6b35c8"),
     Addon("ge-proton", "GE-Proton", "Proton with extra fixes: more games and installers work", "GitHub", "#c0392b"),

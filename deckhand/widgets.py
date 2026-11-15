@@ -822,6 +822,7 @@ class Ring(QWidget):
 
 PILL_ROLE = Qt.ItemDataRole.UserRole + 1  # the status shown as a pill on the right of a card row
 TONE_ROLE = Qt.ItemDataRole.UserRole + 2  # "done" (green), "todo" (plain) or "busy" (accent)
+HEADING_ROLE = Qt.ItemDataRole.UserRole + 3  # a heading over a group of rows (not a row you can pick)
 
 
 class CardDelegate(QStyledItemDelegate):
@@ -831,11 +832,24 @@ class CardDelegate(QStyledItemDelegate):
     the pill isn't repeated underneath."""
 
     H = 88
+    HEADING_H = 44
 
     def sizeHint(self, option, index) -> QSize:  # noqa: N802
-        return QSize(option.rect.width(), self.H)
+        return QSize(option.rect.width(), self.HEADING_H if index.data(HEADING_ROLE) else self.H)
 
     def paint(self, p: QPainter, option: QStyleOptionViewItem, index) -> None:
+        if index.data(HEADING_ROLE):  # a group's heading: small and quiet, like a section label
+            p.save()
+            f = QFont(theme.BODY_FONT)
+            f.setPixelSize(15)
+            f.setBold(True)
+            p.setFont(f)
+            p.setPen(QColor(theme.MUTED))
+            r = QRectF(option.rect).adjusted(18, 10, -18, -4)
+            p.drawText(r, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom,
+                       str(index.data(Qt.ItemDataRole.DisplayRole) or "").upper())
+            p.restore()
+            return
         p.save()
         p.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing
                          | QPainter.RenderHint.SmoothPixmapTransform)

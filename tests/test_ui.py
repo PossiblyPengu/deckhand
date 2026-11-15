@@ -59,7 +59,26 @@ class TestWindow(Env):
         self.win.close()
         self.win.deleteLater()
         self.pump()
+        # Really delete it now (deleteLater alone waits for an event loop that tests don't run): closed windows piling
+        # up over the suite, with their busy progress bars' style animations, made restyling crash in a later test.
+        from PyQt6.QtCore import QEvent
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
+        self.pump()
         super().tearDown()
+
+    @staticmethod
+    def delete_later(widget) -> None:
+        """deleteLater, unless it went already (with the window it belongs to, in tearDown)."""
+        from PyQt6 import sip
+        if not sip.isdeleted(widget):
+            widget.deleteLater()
+
+    def item(self, page, key):
+        """The row for `key` (a store, service or add-on id) on a page: lists have headings, so not by position."""
+        for i in range(page.list.count()):
+            if page.list.item(i).data(Qt.ItemDataRole.UserRole) == key:
+                return page.list.item(i)
+        raise AssertionError(f"no row for {key!r} on {type(page).__name__}")
 
     def pump(self, n=5):
         for _ in range(n):
@@ -116,9 +135,9 @@ class TestWindow(Env):
             select_row(self.win.start.list, step)
             self.win.start._activate(self.win.start.list.currentItem())
 
-        pick("arcadia")  # goes to Add-ons, Arcadia picked
-        self.assertIs(self.win.stack.currentWidget(), self.win.addons)
-        self.assertEqual(self.win.addons.list.currentItem().data(Qt.ItemDataRole.UserRole), "arcadia")
+        pick("arcadia")  # goes to Games, Arcadia picked
+        self.assertIs(self.win.stack.currentWidget(), self.win.stores)
+        self.assertEqual(self.win.stores.list.currentItem().data(Qt.ItemDataRole.UserRole), "arcadia")
         pick("stores")
         self.assertIs(self.win.stack.currentWidget(), self.win.stores)
         pick("program")
@@ -173,18 +192,19 @@ class TestWindow(Env):
         flashes = []
         self.win.flash = lambda text, ms=0, tone="": flashes.append(text)
         self.win.got_addon_updates([updates.Found("arcadia", "Arcadia", "0.1.6")])
-        self.assertEqual(self.win.hub.cards["addons"].detail, "Update: Arcadia 0.1.6")
-        self.assertEqual(flashes, ["Arcadia 0.1.6 is out · open Add-ons to update"])
-        self.win.go(self.win.addons)
+        self.assertEqual(self.win.hub.cards["stores"].detail, "Update: Arcadia 0.1.6")  # (Arcadia is under Games)
+        self.assertEqual(self.win.hub.cards["addons"].detail, "GE-Proton, Decky and more")
+        self.assertEqual(flashes, ["Arcadia 0.1.6 is out · update it in Games → Arcadia"])
+        self.win.go(self.win.stores)
         self.pump()
-        rows = {self.win.addons.list.item(i).data(Qt.ItemDataRole.UserRole): self.win.addons.list.item(i)
-                for i in range(self.win.addons.list.count())}
+        rows = {self.win.stores.list.item(i).data(Qt.ItemDataRole.UserRole): self.win.stores.list.item(i)
+                for i in range(self.win.stores.list.count())}
         self.assertEqual(rows["arcadia"].data(PILL_ROLE), "Update available")
         self.assertIn("Arcadia 0.1.6 is out", rows["arcadia"].text())
         self.win.got_addon_updates([updates.Found("arcadia", "Arcadia", "0.1.6")])
         self.assertEqual(len(flashes), 1)  # (told once)
         self.win.addon_updated("arcadia")
-        self.assertEqual(self.win.hub.cards["addons"].detail, "Arcadia, Decky, Proton, Nexus")
+        self.assertEqual(self.win.hub.cards["stores"].detail, "Arcadia, Heroic, Battle.net and more")
         self.assertEqual(updates.available(self.paths), [])
 
     def test_back_on_the_home_screen_picks_the_section_you_left(self):
@@ -723,7 +743,7 @@ class TestWindow(Env):
         self.win.show_stores()
         page = self.win.stores
         self.answers = [0, 1]  # (the store's sheet) Uninstall; Uninstall (the app too)
-        page._activate(page.list.item(0))
+        page._activate(self.item(page, "heroic"))
         self.assertEqual(self.asked[-1], "Remove Heroic Games Launcher?")
         self.wait_for(lambda: "com.heroicgameslauncher.hgl" not in db.read_text())
         self.wait_for(lambda: core.Library(self.paths).load() == [])
@@ -737,7 +757,7 @@ class TestWindow(Env):
         self.win.show_stores()
         page = self.win.stores
         self.answers = [0, 0]  # Uninstall; Remove from Steam
-        page._activate(page.list.item(0))
+        page._activate(self.item(page, "heroic"))
         self.wait_for(lambda: core.Library(self.paths).load() == [])
         self.assertIn("com.heroicgameslauncher.hgl", db.read_text())
         self.wait_for(lambda: not self.win.workers)
@@ -745,7 +765,7 @@ class TestWindow(Env):
         page.refresh()
         self.wait_for(lambda: page.installed is not None)
         self.answers = [1, 0]  # Uninstall; Uninstall (confirm)
-        page._activate(page.list.item(0))
+        page._activate(self.item(page, "heroic"))
         self.assertEqual(self.asked[-2:], ["Heroic Games Launcher", "Uninstall Heroic Games Launcher?"])
         self.wait_for(lambda: "com.heroicgameslauncher.hgl" not in db.read_text())
 
@@ -892,6 +912,8 @@ class TestWindow(Env):
             self.win.go(page)
             for i in range(page.list.count()):
                 it = page.list.item(i)
+                if it.data(Qt.ItemDataRole.UserRole) is None:
+                    continue  # (a heading)
                 self.assertIsNotNone(artwork.logo(it.data(Qt.ItemDataRole.UserRole)), it.text())
         # (a key without a logo still gets its initials)
         self.assertFalse(app_mod.logo_icon("nope", "No Logo", "#123456").isNull())
@@ -949,9 +971,18 @@ class TestWindow(Env):
         ids = [a.id for a in addons.ADDONS]
         self.assertNotIn("emudeck", ids)  # (Arcadia replaces both)
         self.assertNotIn("retrodeck", ids)
-        self.assertIn("Arcadia", page.list.item(0).text())  # the sister app comes first
-        self.assertIn("Decky Loader", page.list.item(ids.index("decky")).text())
-        self.assertIn("Not installed", page.list.item(ids.index("decky")).text())
+        self.assertEqual(page.list.item(0).text(), "Make games run")  # (a heading, then its tools)
+        self.assertIn("Decky Loader", self.item(page, "decky").text())
+        self.assertIn("Not installed", self.item(page, "decky").text())
+        # Ways to get games are under Games, the sister app first.
+        self.win.switch_section("stores")
+        games = self.win.stores
+        self.assertEqual(games.list.item(0).text(), "Retro games")
+        self.assertIn("Arcadia", games.list.item(1).text())
+        self.assertEqual(games.list.currentRow(), 1)  # (the first row you can pick, never a heading)
+        for a in addons.ADDONS:  # each add-on is listed once, in its own section
+            page_of = games if a.section == "stores" else page
+            self.assertIn(a.name, self.item(page_of, a.id).text())
 
     # ── installing everything from Game Mode ─────────────────────────
 
@@ -993,7 +1024,7 @@ class TestWindow(Env):
 
     def _decky_text(self, page):
         from deckhand import addons
-        return page.list.item([a.id for a in addons.ADDONS].index("decky")).text()  # (the rows are rebuilt on refresh)
+        return self.item(page, "decky").text()  # (the rows are rebuilt on refresh)
 
     def _let_it_finish(self):
         self.wait_for(lambda: not self.win.workers)  # (a window must not go away under a running install)
@@ -1003,7 +1034,7 @@ class TestWindow(Env):
         self.win.go_home()
         self.win.switch_section("addons")
         page = self.win.addons
-        return page, page.list.item([a.id for a in addons.ADDONS].index("decky"))
+        return page, self.item(page, "decky")
 
     def test_decky_installs_from_game_mode_with_the_admin_password(self):
         calls = self._decky_fakes()
@@ -1096,7 +1127,7 @@ class TestWindow(Env):
         page.installed = set()  # (what the background check found: nothing)
         ids = [a.id for a in addons.ADDONS]
         self.answers = [0]  # Install
-        page._activate(page.list.item(ids.index("protonup-qt")))
+        page._activate(self.item(page, "protonup-qt"))
         self.wait_for(lambda: any(a.id == "addon-protonup-qt" for a in core.Library(self.paths).load()))
         self.assertTrue(core.steam_shortcuts([self.steam]))  # openable from Game Mode
 
@@ -1110,7 +1141,7 @@ class TestWindow(Env):
         page = self.win.addons
         page.installed = set()
         self.answers = [0]
-        page._activate(page.list.item([a.id for a in addons.ADDONS].index("protonup-qt")))
+        page._activate(self.item(page, "protonup-qt"))
         self.wait_for(lambda: "net.davidotek.pupgui2" in (self.tmp / "fp.db").read_text())
         self.wait_for(lambda: not self.win.workers)
         self.assertEqual(core.steam_shortcuts([self.steam]), [])
@@ -1276,12 +1307,12 @@ class TestWindow(Env):
         from deckhand.widgets import Sheet
         self._game_mode()
         plain = Sheet(self.win, "Password", "", ("OK", "Cancel"), field="Password", secret=True)
-        self.addCleanup(plain.deleteLater)
+        self.addCleanup(self.delete_later, plain)
         self.assertIsNone(plain.osk)  # (in Game Mode Steam's own keyboard is used: see below)
         self.assertEqual(plain.field.echoMode().name, "Password")
         self._own_keyboard()
         own = Sheet(self.win, "Password", "", ("OK", "Cancel"), field="Password", secret=True)
-        self.addCleanup(own.deleteLater)
+        self.addCleanup(self.delete_later, own)
         self.assertIsNotNone(own.osk)
         self.assertIsNone(Sheet(self.win, "No field", "", ("OK",)).osk)
 
@@ -1290,7 +1321,7 @@ class TestWindow(Env):
         self._game_mode()
         self._own_keyboard()
         s = Sheet(self.win, "Key", "", ("Save", "Cancel"), field="API key")
-        self.addCleanup(s.deleteLater)
+        self.addCleanup(self.delete_later, s)
         s.osk.type("a")
         s.osk.type("b")
         Sheet.current = s
@@ -1412,6 +1443,19 @@ class TestWindow(Env):
         self.pump()
         return page, page.list
 
+    def test_the_d_pad_passes_over_headings(self):
+        page, lst = self._addons_list()
+        lst.setFocus()
+        lst.setCurrentItem(self.item(page, "bottles"))  # the last of "Make games run"
+        self.pump()
+        self.win.nav.move("down")
+        self.assertIs(lst.currentItem(), self.item(page, "decky"))  # the first of "Deck tools", over its heading
+        self.win.nav.move("up")
+        self.assertIs(lst.currentItem(), self.item(page, "bottles"))
+        lst.setCurrentRow(1)  # the first row (row 0 is a heading)
+        self.win.nav.move("up")
+        self.assertEqual(lst.currentRow(), 1)  # (it never lands on the heading: up leaves the list)
+
     def test_l1_and_r1_page_through_a_long_list_and_stop_at_the_ends(self):
         page, lst = self._addons_list()
         self.assertGreater(lst.count(), 6)
@@ -1429,7 +1473,7 @@ class TestWindow(Env):
         self.assertEqual(lst.currentRow(), lst.count() - 1)  # stops at the bottom
         for _ in range(10):
             self.win.on_action("lb")
-        self.assertEqual(lst.currentRow(), 0)  # and the top
+        self.assertEqual(lst.currentRow(), 1)  # and the top (its first row: row 0 is a heading)
 
     def test_l1_and_r1_still_page_the_list_when_the_focus_is_elsewhere(self):
         page, lst = self._addons_list()
@@ -1483,8 +1527,17 @@ class TestWindow(Env):
         self.win.switch_section("stores")
         page = self.win.stores
         self.assertIs(self.win.stack.currentWidget(), page)
+        from deckhand import addons
         rows = [page.list.item(i).text().split("\n")[0] for i in range(page.list.count())]
-        self.assertEqual(rows, [s.name for s in stores.STORES])
+        expected = []
+        for heading, keys in addons.GAMES_LAYOUT:  # every store, under its heading, with the game add-ons
+            expected.append(heading)
+            for key in keys:
+                kind, key_id = key.split(":", 1)
+                expected.append(stores.store(key_id).name if kind == "store" else addons.addon(key_id).name)
+        self.assertEqual(rows, expected)
+        self.assertEqual(sorted(k for _h, ks in addons.GAMES_LAYOUT for k in ks if k.startswith("store:")),
+                         sorted(f"store:{s.id}" for s in stores.STORES))
         row = rows.index("Battle.net")
         self.assertIn("Not installed", page.list.item(row).text())
         self.shot("stores")
@@ -1521,7 +1574,7 @@ class TestWindow(Env):
         try:
             self.win.show_stores()
             self.answers = [0]  # Download and install
-            self.win.stores._activate(self.win.stores.list.item(2))  # EA app
+            self.win.stores._activate(self.item(self.win.stores, "ea"))  # EA app
             self.wait_for(lambda: "installer" in self.win.progress.status.text())
         finally:
             stores.updater._open = orig
@@ -1546,7 +1599,7 @@ class TestWindow(Env):
             self.win.show_stores()
             page = self.win.stores
             self.answers = [0, 0]  # Download and install; Close
-            page._activate(page.list.item(1))
+            page._activate(self.item(page, "battlenet"))
             self.wait_for(lambda: self.asked[-1] == "Couldn't set up Battle.net")
         finally:
             stores.updater._open = orig
@@ -1564,11 +1617,11 @@ class TestWindow(Env):
         self.win.show_stores()
         page = self.win.stores
         self.wait_for(lambda: page.installed is not None)
-        self.assertIn("Not added yet  ·  installs from Flathub", page.list.item(0).text())
+        self.assertIn("Not added yet  ·  installs from Flathub", self.item(page, "heroic").text())
         self.answers = [0]  # Add to Steam
-        page._activate(page.list.item(0))
+        page._activate(self.item(page, "heroic"))
         self.assertEqual(self.asked[-1], "Add Heroic Games Launcher to Steam?")
-        self.wait_for(lambda: "In Steam  ·  app installed ✓" in page.list.item(0).text())
+        self.wait_for(lambda: "In Steam  ·  app installed ✓" in self.item(page, "heroic").text())
         app = core.Library(self.paths).load()[0]
         self.assertEqual(app.kind, "store")
         self.assertTrue(app.artwork)
@@ -1576,11 +1629,11 @@ class TestWindow(Env):
         self.assertTrue(self.win.home.manage_btn.isVisible())
         self.win.show_stores()
         self.answers = [0, 0]  # Remove it; Remove (confirm)
-        page._activate(page.list.item(0))
+        page._activate(self.item(page, "heroic"))
         self.assertEqual(self.asked[-1], "Remove Heroic Games Launcher?")
         self.wait_for(lambda: core.Library(self.paths).load() == [])
         self.assertEqual(core.steam_shortcuts([self.steam]), [])
-        self.wait_for(lambda: "Not added yet" in page.list.item(0).text())
+        self.wait_for(lambda: "Not added yet" in self.item(page, "heroic").text())
 
     def use_fake_flatpak(self):
         from tests.test_streaming import FAKE_FLATPAK
@@ -1601,9 +1654,9 @@ class TestWindow(Env):
         self.win.show_addons()
         page = self.win.addons
         self.wait_for(lambda: page.installed is not None)
-        ids = [a.id for a in addons.ADDONS]
-        item = page.list.item
-        discord, flatseal, ge = ids.index("discord"), ids.index("flatseal"), ids.index("ge-proton")
+        def item(key):  # (looked up again each time: the rows are rebuilt when the page refreshes)
+            return self.item(page, key)
+        discord, flatseal, ge = "discord", "flatseal", "ge-proton"
         self.assertIn("Not installed", item(discord).text())
         # A Game Mode app: installed and added to Steam.
         self.answers = [0]  # Install
@@ -2118,8 +2171,8 @@ class TestWindow(Env):
         def restore():
             addons.download_arcadia, addons.download_nexus, addons.open_arcadia, addons.open_nexus = self._orig
         self.addCleanup(restore)
-        self.win.show_addons()
-        self.page = self.win.addons
+        self.win.show_stores()  # (Arcadia and Nexus Launcher are ways to get games: listed under Games)
+        self.page = self.win.stores
 
     def _addon_row(self, addon_id):
         return next(self.page.list.item(i) for i in range(self.page.list.count())

@@ -10,14 +10,14 @@ Deckhand is an installer, not a launcher: once something is installed you play i
 2. Click through the installer as usual.
 3. Done: the program is in your Steam library, with its icon and library artwork.
 
-Built for the Deck: it opens on six big cards (**Start · Install · Stores · Stream · Add-ons · Installed**): move with the D-pad, **A** opens one and **B** brings you back to them. Full controller support (D-pad/stick to move, **A** select, **B** back, **X** browse, **☰** menu, **L1/R1** to page through long lists), big touch targets, button hints along the bottom, and full screen in Game Mode. It shares its look with its sister app [Arcadia](https://github.com/PossiblyPengu/arcadia) (`DESIGN.md`: soft pastels, rounded cards and pill buttons, Nunito and Fraunces). Dusk, the dark scheme, is the default; **☰ Menu → Light look** switches to Cloud.
+Built for the Deck: it opens on six big cards (**Start · Install · Games · Stream · Tools · Installed**): move with the D-pad, **A** opens one and **B** brings you back to them. Full controller support (D-pad/stick to move, **A** select, **B** back, **X** browse, **☰** menu, **L1/R1** to page through long lists), big touch targets, button hints along the bottom, and full screen in Game Mode. It shares its look with its sister app [Arcadia](https://github.com/PossiblyPengu/arcadia) (`DESIGN.md`: soft pastels, rounded cards and pill buttons, Nunito and Fraunces). Dusk, the dark scheme, is the default; **☰ Menu → Light look** switches to Cloud.
 
 ## Start: a checklist for a new Deck
 
 Deckhand opens on **Start**, a checklist like Arcadia's Setup screen, with a ring showing how much is done:
 Proton for Windows games, Deckhand in your Steam library, a game store, game streaming, Decky Loader, retro games with
 Arcadia, and your first Windows program. Each step shows **Done** once it's on the Deck (however it got there) and
-takes you to where it's set up. Stores, Stream, Add-ons and Installed show each entry's status the same way, as a
+takes you to where it's set up. Games, Stream, Tools and Installed show each entry's status the same way, as a
 pill on its card.
 
 ## Typing with a controller
@@ -51,10 +51,12 @@ Programs Deckhand starts no longer inherit Steam's overlay library, so their out
 - **Checks what it downloads:** where a release publishes a checksum (GE-Proton, Arcadia, Nexus Launcher, Deckhand's own updates), the file must match it, and a checksum that can't be read, or doesn't list the file, stops the download instead of being skipped. Where none is published, Deckhand says so. Every add-on download is written to `~/.local/share/deckhand/logs/downloads.log` with its version, where it came from and how it was checked.
 - **Keeps the Deck awake while installing** (when the system allows it), so a long install isn't paused by sleep.
 
-## Game stores
+## Games
 
-The **Stores** section puts other game stores' apps in your Steam library. Sign in the first time you open one, then
-install and play its games from inside it:
+The **Games** section is every way to get games onto the Deck, under headings: **Retro games** (Arcadia), **Game
+launchers** (Heroic, Lutris, itch, Prism Launcher), **Xbox PC games** (Nexus Launcher) and **Windows stores**. Each ends
+up in your Steam library. For a store, sign in the first time you open it, then install and play its games from inside
+it:
 
 | Store | How |
 | :--- | :--- |
@@ -97,21 +99,27 @@ uninstall its app or browser too, unless another service still uses that browser
 
 Deckhand and [Arcadia](https://github.com/PossiblyPengu/arcadia) are a pair for getting started on a Steam Deck.
 Deckhand does Windows programs and games, game stores, streaming and Deck add-ons; Arcadia does retro games (ROMs,
-emulators, BIOS files and emulator saves). Each installs the other: Arcadia is first in Deckhand's **Add-ons**, and
+emulators, BIOS files and emulator saves). Each installs the other: Arcadia is first in Deckhand's **Games**, and
 Arcadia's Setup screen has a "Windows games and stores" step that installs or opens Deckhand.
 
-## Add-ons
+In Games, Arcadia and Nexus Launcher work like this:
 
-The **Add-ons** section installs popular Deck add-ons and tools from their official sources. Each shows whether it's
-already installed:
-
-| Add-on | How |
+| | How |
 | :--- | :--- |
 | **Arcadia** (github.com/PossiblyPengu/arcadia) | Deckhand's sister app, for retro games: consoles and games on a controller-first launcher, with its own Setup screen that sorts ROMs, installs emulators, checks BIOS files and syncs saves. Downloads the Steam Deck AppImage from Arcadia's latest GitHub release into `~/Applications`, checks it against GitHub's checksum, and adds it to Steam (with artwork) and the app menu. An Arcadia already in Steam gets no second shortcut. Picking it again opens, updates or uninstalls it; uninstalling keeps your games and Arcadia's settings in `~/Arcadia`. |
 | **Nexus Launcher** (Xbox PC games, built on [Xodus](https://github.com/xodus-gaming/xodus)) | Plays your Xbox and Game Pass PC games on the Deck. **Unofficial and experimental:** it isn't made or supported by Microsoft, some games run badly or not at all, and you need a Microsoft account and a licence for each game. Downloads the newest AppImage from [its GitHub releases](https://github.com/domsvoboda/nexus-launcher/releases) into `~/Applications`, checks it against the release's SHA-512 file, and adds it to Steam (with artwork) and the app menu. A copy installed by Nexus's own installer is found and updated where it is, and a shortcut Nexus or you already made gets no second one. Afterwards open it, install the **Nexus Runtime** in its Settings and sign in (a mouse or the touchscreen helps; its browser sign-in option needs Google Chrome). |
+
+## Tools
+
+The **Tools** section installs what helps games run (**Make games run**: GE-Proton, ProtonUp-Qt, Protontricks, Bottles),
+**Deck tools** (Decky Loader, Flatseal, Ludusavi) and **Apps** (Discord), from their official sources. Each shows
+whether it's already installed:
+
+| Add-on | How |
+| :--- | :--- |
 | **Decky Loader** (decky.xyz) | Runs Decky's own installer from github.com/SteamDeckHomebrew, with its questions asked on Deckhand's own screens, so it works in **Game Mode** as well as on the desktop. You type your admin password (or agree to the temporary one Decky's installer offers when none is set); you can install, install the prerelease, update, uninstall, or wipe it. The password is checked first, never logged, and wiped when the install ends. If Decky ever changes its installer in a way Deckhand doesn't recognise, nothing is run: on the desktop Decky's own windows open instead, in Game Mode Deckhand asks you to update. |
 | **GE-Proton** | Proton with extra fixes. Downloads the newest release from its GitHub releases, checks it against its checksum and puts it with Steam's compatibility tools. Deckhand uses it for new installs straight away; for a Steam game, restart Steam and pick it under ⚙ → Properties → Compatibility. Picking it again updates it. |
-| **Lutris**, **Bottles**, **Discord** | From Flathub (kept up to date by Discover), and added to Steam so you can open them in Game Mode. |
+| **Lutris** (in Games), **Bottles**, **Discord** | From Flathub (kept up to date by Discover), and added to Steam so you can open them in Game Mode. |
 | **ProtonUp-Qt**, **Protontricks**, **Ludusavi**, **Flatseal** | Desktop tools: from Flathub (kept up to date by Discover). Installed in Game Mode they are added to Steam too, so you can open them there; installed on the desktop they go in the app menu. |
 
 An app from
@@ -135,7 +143,7 @@ No pip, pacman, or developer mode needed. The script downloads the prebuilt bina
 To get the whole suite in one go, add Arcadia (retro games) too: `curl -fsSL …/get.sh | bash -s -- --with-arcadia`.
 
 - **Deckhand puts itself in Steam the first time you open it**, so it is already there in Game Mode (while Steam is running it is handed to Steam, and may show up only after a Steam restart). It does this once: if you remove it later, it isn't added again. To add it by hand: **☰ Menu → Add Deckhand to Steam**. To turn the automatic step off, start it with `DECKHAND_NO_AUTO_STEAM=1`.
-- **Update notifications, in Game Mode too:** every few hours (and a few minutes after you sign in) Deckhand checks in the background for new versions of itself, Arcadia, Nexus Launcher, Decky Loader and GE-Proton, even when it isn't open. Something new comes up as a notification: Steam shows it as a toast in Game Mode, KDE in Desktop Mode, once per version. The home screen's Add-ons card and the add-on's row then say an update is waiting, with **Update** first when you choose it. It's a systemd user timer (`deckhand-updates.timer`) that runs `deckhand --check-updates`; turn it off with **☰ Menu → Turn off update notifications**.
+- **Update notifications, in Game Mode too:** every few hours (and a few minutes after you sign in) Deckhand checks in the background for new versions of itself, Arcadia, Nexus Launcher, Decky Loader and GE-Proton, even when it isn't open. Something new comes up as a notification: Steam shows it as a toast in Game Mode, KDE in Desktop Mode, once per version. The home screen's Games or Tools card and the add-on's row then say an update is waiting, with **Update** first when you choose it. It's a systemd user timer (`deckhand-updates.timer`) that runs `deckhand --check-updates`; turn it off with **☰ Menu → Turn off update notifications**.
 - **Updates are built in:** when a new version is out, a banner on the home screen offers **Update now**; the download is checksum-verified and Deckhand restarts into it. You can also use **☰ Menu → Check for updates**, or `deckhand --update` in Konsole.
 - In Desktop Mode you can also right-click any setup `.exe` → **Open With → Deckhand**.
 - If a program shows "Sent to Steam" but isn't in your library, restart Steam (STEAM button → Power → Restart Steam).
@@ -173,7 +181,7 @@ Steam** — or uninstall to free the space.
 
 Everything Deckhand installs can be uninstalled from Deckhand. A browser or app it installed from Flathub that nothing
 uses any more (the services and stores that used it were removed) is listed here as **Not used**, to uninstall it.
-GE-Proton is uninstalled from **Add-ons → GE-Proton**. **☰ Menu → Uninstall Deckhand** removes Deckhand itself (the
+GE-Proton is uninstalled from **Tools → GE-Proton**. **☰ Menu → Uninstall Deckhand** removes Deckhand itself (the
 app, its menu entry, its update check and its Steam shortcut); what you installed with it stays and keeps working from
 Steam, so uninstall those first if they should go too.
 

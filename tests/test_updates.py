@@ -85,7 +85,7 @@ class TestUpdates(Env):
     def test_each_version_is_told_once(self):
         found = [updates.Found("arcadia", "Arcadia", "0.1.6")]
         self.assertEqual(len(updates.notify(self.paths, found, self.sender)), 1)
-        self.assertEqual(self.sent, [("Arcadia 0.1.6 is out", "Open Deckhand and choose Add-ons → Arcadia to update it.")])
+        self.assertEqual(self.sent, [("Arcadia 0.1.6 is out", "Open Deckhand and choose Games → Arcadia to update it.")])
         self.assertEqual(updates.notify(self.paths, found, self.sender), [])
         self.assertEqual(len(self.sent), 1)
         newer = [updates.Found("arcadia", "Arcadia", "0.1.7")]

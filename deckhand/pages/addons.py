@@ -1,4 +1,7 @@
-"""Popular Deck add-ons and tools, installed from their official sources."""
+"""Tools (the Add-ons section): what helps games run, and Deck tools, installed from their official sources.
+
+The actions for each add-on (install, open, update, add to Steam, uninstall) are AddonActions, which the Games
+section uses too for the add-ons it lists (Arcadia, Nexus Launcher, Lutris: ways to get games)."""
 from __future__ import annotations
 
 from PyQt6.QtCore import QSize, Qt
@@ -6,73 +9,40 @@ from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QProgressBar, QVBoxLay
 
 from .. import addons, artwork, core, proton, streaming
 from ..widgets import Sheet, label
-from .common import page_header, PAGE_MARGINS, Page, REMOVE_IN_STEAM, STEAM_STATE, logo_icon, on_choose, set_pill
+from .common import (page_header, PAGE_MARGINS, Page, REMOVE_IN_STEAM, STEAM_STATE, add_heading, keep_row,
+                     logo_icon, on_choose, set_pill)
 
 
-class AddonsPage(Page):
-    """Popular Deck add-ons and tools, installed from their official sources."""
+class AddonActions:
+    """What a page does with an add-on. The page has `win`, `status`, `show_progress`, `refresh`, and keeps
+    `installed` (Flatpak apps, None while they're read), `apps` (add-on id -> its Steam entry in the library) and
+    `steam` (add-on id -> core.steam_state of that)."""
 
-    title = "Add-ons"
-
-    def __init__(self, win):
-        super().__init__(win)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(*PAGE_MARGINS)
-        lay.setSpacing(12)
-        page_header(lay, "addons", "Add-ons",
-                    "Arcadia for retro games, and popular Deck add-ons and tools, from their official sources.")
-        self.list = QListWidget()
-        self.list.setIconSize(QSize(44, 44))
-        on_choose(self.list, self._activate)
-        lay.addWidget(self.list, 1)
-        self.status = label("", "muted")
-        lay.addWidget(self.status)
-        self.bar = QProgressBar()
-        self.bar.setTextVisible(False)
-        self.bar.hide()
-        lay.addWidget(self.bar)
-        self.installed: set[str] | None = None  # Flatpak apps; read in the background
-        self.apps: dict[str, core.App] = {}  # add-on id → its Steam shortcut (Flathub apps added to Steam)
-        self.steam: dict[str, str] = {}  # add-on id → core.steam_state of that
-
-    def refresh(self) -> None:
+    def _addon_apps(self) -> dict[str, core.App]:
         library = {a.id: a for a in self.win.library.load() if a.kind == "addon"}
-        self.apps = {a.id: library[f"addon-{a.id}"] for a in addons.ADDONS if f"addon-{a.id}" in library}
-        roots, running = core.steam_roots(), core.steam_is_running()
-        entries = core.steam_shortcuts(roots) if self.apps else []
-        self.steam = {i: core.steam_state(app, roots, running, entries) for i, app in self.apps.items()}
-        row = max(0, self.list.currentRow())
-        self.list.clear()
-        for a in addons.ADDONS:
-            parts = [a.blurb, addons.status(a, installed=self.installed)]
-            if a.id in self.apps:
-                parts.append(STEAM_STATE[self.steam.get(a.id, "out")])
-            parts.append(f"from {a.site}")
-            it = QListWidgetItem(logo_icon(a.id, a.name, a.color), f"{a.name}\n" + "  ·  ".join(parts))
-            it.setData(Qt.ItemDataRole.UserRole, a.id)
-            st = parts[1]
-            update = self.win.addon_updates.get(a.id) if st.startswith("Installed") else None
-            if update is not None:
-                it.setText(it.text() + f"  ·  {update.text} is out")
-                set_pill(it, "Update available", "todo")
-            else:
-                set_pill(it, "Checking…" if st == "…" else st.split(" (")[0],
-                         "done" if st.startswith(("Installed", "Set up")) else "busy" if st.startswith("Downloaded")
-                         else "todo")
-            self.list.addItem(it)
-        self.list.setCurrentRow(min(row, self.list.count() - 1))
-        if self.installed is None and not self.win.busy_with_quietly("addon-flatpaks"):
-            self.win.run_worker(lambda _s: streaming.installed_apps(), self._got_installed, lambda _m: None,
-                                kind="addon-flatpaks")
+        return {a.id: library[f"addon-{a.id}"] for a in addons.ADDONS if f"addon-{a.id}" in library}
 
-    def _got_installed(self, apps: set[str]) -> None:
-        self.installed = apps
-        if self.win.stack.currentWidget() is self:
-            self.refresh()
+    def _addon_item(self, a: addons.Addon) -> QListWidgetItem:
+        """Its row: name, what it is, whether it's installed (and in Steam), and an update if one is out."""
+        parts = [a.blurb, addons.status(a, installed=self.installed)]
+        if a.id in self.apps:
+            parts.append(STEAM_STATE[self.steam.get(a.id, "out")])
+        parts.append(f"from {a.site}")
+        it = QListWidgetItem(logo_icon(a.id, a.name, a.color), f"{a.name}\n" + "  ·  ".join(parts))
+        it.setData(Qt.ItemDataRole.UserRole, a.id)
+        st = parts[1]
+        update = self.win.addon_updates.get(a.id) if st.startswith("Installed") else None
+        if update is not None:
+            it.setText(it.text() + f"  ·  {update.text} is out")
+            set_pill(it, "Update available", "todo")
+        else:
+            set_pill(it, "Checking…" if st == "…" else st.split(" (")[0],
+                     "done" if st.startswith(("Installed", "Set up")) else "busy" if st.startswith("Downloaded")
+                     else "todo")
+        return it
 
-    def _activate(self, item: QListWidgetItem) -> None:
-        a = addons.addon(item.data(Qt.ItemDataRole.UserRole))
-        if a is None or self.win.busy_with("addon"):
+    def _activate_addon(self, a: addons.Addon) -> None:
+        if self.win.busy_with("addon"):
             return
         if a.id == "arcadia":
             self._arcadia(a)
@@ -132,7 +102,7 @@ class AddonsPage(Page):
             self.installed = None  # re-read
             if app is not None:
                 self.win._write_art(app, artwork.load_icon(app.icon))
-                self.win._say_added(app, f"Add-ons → {a.name}")
+                self.win._say_added(app, a.where)
             else:
                 self.win.flash(f"{a.name} is installed — it's in the Desktop Mode app menu", ms=5000)
             self.refresh()
@@ -318,7 +288,7 @@ class AddonsPage(Page):
             self.win.addon_updated("arcadia")
             core.record_download(self.win.paths, "Arcadia", version, info)
             self.win._write_art(app, artwork.load_icon(app.icon))
-            self.win._say_added(app, "Add-ons → Arcadia")
+            self.win._say_added(app, addons.addon("arcadia").where)
             self.refresh()
 
         self.win.run_worker(run, finished, self._failed("Arcadia"), status=self.status.setText, kind="addon",
@@ -327,7 +297,7 @@ class AddonsPage(Page):
     def _set_up_arcadia(self, a: addons.Addon) -> None:
         def finished(app: core.App) -> None:
             self.win._write_art(app, artwork.load_icon(app.icon))
-            self.win._say_added(app, "Add-ons → Arcadia")
+            self.win._say_added(app, addons.addon("arcadia").where)
             self.refresh()
 
         self.win.run_worker(lambda _s: addons.set_up_arcadia(self.win.paths), finished, self._failed("Arcadia"),
@@ -421,7 +391,7 @@ class AddonsPage(Page):
             self.win.addon_updated("nexus")
             core.record_download(self.win.paths, "Nexus Launcher", version, info)
             self.win._write_art(app, artwork.load_icon(app.icon))
-            self.win._say_added(app, "Add-ons → Xbox PC games")
+            self.win._say_added(app, addons.addon("nexus").where)
             self.refresh()
             if info.get("note"):  # (a release that publishes no checksum: say so rather than staying quiet)
                 Sheet.ask(self, "Nexus Launcher is installed", info["note"], ("Close",))
@@ -432,7 +402,7 @@ class AddonsPage(Page):
     def _set_up_nexus(self, a: addons.Addon) -> None:
         def finished(app: core.App) -> None:
             self.win._write_art(app, artwork.load_icon(app.icon))
-            self.win._say_added(app, "Add-ons → Xbox PC games")
+            self.win._say_added(app, addons.addon("nexus").where)
             self.refresh()
 
         self.win.run_worker(lambda _s: addons.set_up_nexus(self.win.paths), finished,
@@ -576,6 +546,59 @@ class AddonsPage(Page):
             Sheet.ask(self, f"Couldn't set up {name}", head, ("Close",), detail=rest)
             self.refresh()
         return failed
+
+
+class AddonsPage(AddonActions, Page):
+    """Tools: what helps games run (Proton and friends), Deck tools and Discord, grouped under headings."""
+
+    title = "Tools"
+
+    def __init__(self, win):
+        super().__init__(win)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(*PAGE_MARGINS)
+        lay.setSpacing(12)
+        page_header(lay, "addons", "Tools",
+                    "What helps games run, and handy Deck tools, from their official sources.")
+        self.list = QListWidget()
+        self.list.setIconSize(QSize(44, 44))
+        on_choose(self.list, self._activate)
+        lay.addWidget(self.list, 1)
+        self.status = label("", "muted")
+        lay.addWidget(self.status)
+        self.bar = QProgressBar()
+        self.bar.setTextVisible(False)
+        self.bar.hide()
+        lay.addWidget(self.bar)
+        self.installed: set[str] | None = None  # Flatpak apps; read in the background
+        self.apps: dict[str, core.App] = {}  # add-on id -> its Steam shortcut (Flathub apps added to Steam)
+        self.steam: dict[str, str] = {}  # add-on id -> core.steam_state of that
+
+    def refresh(self) -> None:
+        self.apps = self._addon_apps()
+        roots, running = core.steam_roots(), core.steam_is_running()
+        entries = core.steam_shortcuts(roots) if self.apps else []
+        self.steam = {i: core.steam_state(app, roots, running, entries) for i, app in self.apps.items()}
+        row = self.list.currentRow()
+        self.list.clear()
+        for heading, keys in addons.TOOLS_LAYOUT:
+            add_heading(self.list, heading)
+            for key in keys:
+                self.list.addItem(self._addon_item(addons.addon(key.split(":", 1)[1])))
+        keep_row(self.list, row)
+        if self.installed is None and not self.win.busy_with_quietly("addon-flatpaks"):
+            self.win.run_worker(lambda _s: streaming.installed_apps(), self._got_installed, lambda _m: None,
+                                kind="addon-flatpaks")
+
+    def _got_installed(self, apps: set[str]) -> None:
+        self.installed = apps
+        if self.win.stack.currentWidget() is self:
+            self.refresh()
+
+    def _activate(self, item: QListWidgetItem) -> None:
+        a = addons.addon(item.data(Qt.ItemDataRole.UserRole))
+        if a is not None:
+            self._activate_addon(a)
 
     def enter(self) -> None:
         self.refresh()

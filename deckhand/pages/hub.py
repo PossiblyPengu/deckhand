@@ -13,9 +13,9 @@ from .common import PAGE_MARGINS, Page
 SECTIONS = (
     ("start", "Start", "flag", "A checklist for a new Deck"),
     ("install", "Install", "download", "Windows programs and games"),
-    ("stores", "Stores", "bag", "Epic, GOG, Ubisoft and more"),
+    ("stores", "Games", "bag", "Arcadia, Heroic, Battle.net and more"),
     ("stream", "Stream", "signal", "Xbox Cloud, GeForce NOW and more"),
-    ("addons", "Add-ons", "plus", "Arcadia, Decky, Proton, Nexus"),
+    ("addons", "Tools", "plus", "GE-Proton, Decky and more"),
     ("installed", "Installed", "stack", "Fix, back up or remove"),
 )
 
@@ -152,10 +152,12 @@ class HubPage(Page):
         self.cards["start"].set_detail(f"{left} step{'s' * (left != 1)} to go" if left else "All set up")
         count = len(self.win.library.load())
         self.cards["installed"].set_detail(f"{count} program{'s' * (count != 1)}" if count else "Nothing installed yet")
-        waiting = list(getattr(self.win, "addon_updates", {}).values())
-        self.cards["addons"].set_detail(
-            f"Update: {waiting[0].text}" if len(waiting) == 1 else f"{len(waiting)} updates waiting" if waiting
-            else next(d for k, _t, _g, d in SECTIONS if k == "addons"))
+        # Each card says when something it lists has an update waiting.
+        for key in ("stores", "addons"):
+            waiting = [f for f in getattr(self.win, "addon_updates", {}).values() if f.section == key]
+            self.cards[key].set_detail(
+                f"Update: {waiting[0].text}" if len(waiting) == 1 else f"{len(waiting)} updates waiting" if waiting
+                else next(d for k, _t, _g, d in SECTIONS if k == key))
 
     def enter(self) -> None:
         self.refresh()

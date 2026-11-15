@@ -204,7 +204,7 @@ def app_name(app_id: str) -> str:
 
 def catalog() -> dict[str, str]:
     """Every Flathub app Deckhand installs for a streaming service or a store: id → name. (Add-ons from Flathub are
-    installed and uninstalled on the Add-ons page.)"""
+    installed and uninstalled in the Games and Tools sections.)"""
     from . import stores  # (stores imports this module)
 
     out = dict(APP_NAMES)

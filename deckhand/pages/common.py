@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .. import __version__, artwork, core, theme, updater
-from ..widgets import ElideLabel, PILL_ROLE, TONE_ROLE, button, draw_glyph
+from ..widgets import HEADING_ROLE, ElideLabel, PILL_ROLE, TONE_ROLE, button, draw_glyph
 
 if TYPE_CHECKING:
     from ..app import MainWindow
@@ -71,6 +71,26 @@ def on_choose(lst: QListWidget, handler: Callable[[QListWidgetItem], None]) -> N
     lst.itemClicked.connect(clicked)
     lst.itemDoubleClicked.connect(lambda _i: state.update(double=True))
     lst.itemActivated.connect(activated)
+
+
+def add_heading(lst: QListWidget, text: str) -> None:
+    """A heading over the rows that follow (CardDelegate draws it): it can't be picked, and the D-pad passes over it."""
+    it = QListWidgetItem(text)
+    it.setData(HEADING_ROLE, True)
+    it.setFlags(Qt.ItemFlag.NoItemFlags)
+    lst.addItem(it)
+
+
+def first_row(lst: QListWidget) -> int:
+    """The first row that isn't a heading (-1 in an empty list)."""
+    return next((i for i in range(lst.count()) if not lst.item(i).data(HEADING_ROLE)), -1)
+
+
+def keep_row(lst: QListWidget, row: int) -> None:
+    """Select `row` again after the list was rebuilt (the nearest row that isn't a heading)."""
+    rows = [i for i in range(lst.count()) if not lst.item(i).data(HEADING_ROLE)]
+    if rows:
+        lst.setCurrentRow(min(rows, key=lambda i: (abs(i - row), -i)) if row >= 0 else rows[0])
 
 
 def set_pill(item: QListWidgetItem, text: str, tone: str = "todo") -> None:

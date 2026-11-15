@@ -208,10 +208,12 @@ class MainWindow(QMainWindow):
             page.banner.hide()
 
     def open_addon(self, addon_id: str) -> None:
-        """The Add-ons section, with that add-on picked (A then opens it)."""
-        self.show_addons()
-        if self.stack.currentWidget() is self.addons:
-            select_row(self.addons.list, addon_id)
+        """The section that lists that add-on (Games or Tools), with it picked (A then opens it)."""
+        a = addons.addon(addon_id)
+        page = self.stores if a is not None and a.section == "stores" else self.addons
+        (self.show_stores if page is self.stores else self.show_addons)()
+        if self.stack.currentWidget() is page:
+            select_row(page.list, addon_id)
 
     def page_list(self, direction: int) -> None:
         """L1 / R1: jump a screenful up (-1) or down (1) the list the controller is on, or else the page's list."""
@@ -222,8 +224,14 @@ class MainWindow(QMainWindow):
                 if page is not None else None
         if w is None or not w.count():
             return
-        step = max(3, w.viewport().height() // max(1, w.sizeHintForRow(0)) - 1)
-        w.setCurrentRow(max(0, min(w.count() - 1, max(w.currentRow(), 0) + direction * step)))
+        first = Nav.next_row(w, 0, 1)
+        if first is None:
+            return
+        step = max(3, w.viewport().height() // max(1, w.sizeHintForRow(first)) - 1)
+        target = max(0, min(w.count() - 1, max(w.currentRow(), 0) + direction * step))
+        # (a heading can't be picked: the nearest row that can, that way, else the other way)
+        row = Nav.next_row(w, target, direction)
+        w.setCurrentRow(row if row is not None else Nav.next_row(w, target, -direction))
         w.setFocus()
 
     def edit_text_with_keyboard(self, field: QLineEdit) -> None:
@@ -754,7 +762,7 @@ class MainWindow(QMainWindow):
             page.show_progress(None)
             page.installed = None  # re-read: something may have been installed
             self._write_art(app, artwork.load_icon(app.icon))
-            self._say_added(app, f"Stores → {s.name}")
+            self._say_added(app, f"Games → {s.name}")
             if self.stack.currentWidget() is page:
                 page.refresh()
 
@@ -1320,11 +1328,12 @@ class MainWindow(QMainWindow):
         updates.remember(self.paths, mine + found)
         self.addon_updates = {f.id: f for f in found}
         self.hub.refresh()
-        if self.stack.currentWidget() is self.addons:
-            self.addons.refresh()
+        if self.stack.currentWidget() in (self.addons, self.stores):
+            self.stack.currentWidget().refresh()
 
         def tell(title: str, _body: str) -> bool:
-            self.flash(f"{title} · open Add-ons to update", 8000)
+            where = found[0].where if len(found) == 1 else "Games and Tools"
+            self.flash(f"{title} · update it in {where}", 8000)
             return True
 
         updates.notify(self.paths, found, tell)  # (each version once, here or by the background check)
@@ -1340,7 +1349,7 @@ class MainWindow(QMainWindow):
         self.paths.remember(update_notifications=on)
         self.keep_update_timer()
         self.flash("Update notifications on: Deckhand checks every few hours and tells you, in Game Mode too" if on
-                   else "Update notifications off. Add-ons still shows updates when you open it", 6000)
+                   else "Update notifications off. Games and Tools still show updates when you open them", 6000)
 
     def start_update(self) -> None:
         target = updater.self_path()
@@ -1591,7 +1600,7 @@ def main(argv: list[str] | None = None) -> int:
         return updater.cli_update(__version__)
     if "--update-better-xcloud" in args:  # run by the Xbox launcher before it starts the browser
         return update_better_xcloud_cli(force="--force" in args)
-    if "--add-arcadia" in args:  # used by get.sh --with-arcadia: the same thing as Add-ons → Arcadia
+    if "--add-arcadia" in args:  # used by get.sh --with-arcadia: the same thing as Games → Arcadia
         return add_arcadia_cli()
     if "--install-icon" in args:  # used by get.sh: put the app icon where the desktop finds it
         from PyQt6.QtGui import QGuiApplication

@@ -46,6 +46,18 @@ class Found:
     def text(self) -> str:
         return f"{self.name} {self.latest}" if self.latest else self.name
 
+    @property
+    def section(self) -> str:
+        """Which section of Deckhand lists it: "stores" (Games), "addons" (Tools), or "" for Deckhand itself."""
+        a = addons.addon(self.id)
+        return a.section if a is not None else ""
+
+    @property
+    def where(self) -> str:
+        """Where to find it in Deckhand: "Games → Arcadia", "Tools → Decky Loader"."""
+        a = addons.addon(self.id)
+        return a.where if a is not None else "Deckhand"
+
 
 # ── Checking ─────────────────────────────────────────────────────────────────
 
@@ -174,7 +186,7 @@ def message(found: list[Found]) -> tuple[str, str]:
     if len(found) == 1:
         f = found[0]
         return f"{f.text} is out", f"Open Deckhand to update {f.name}." if f.id == "deckhand" else \
-            f"Open Deckhand and choose Add-ons → {f.name} to update it."
+            f"Open Deckhand and choose {f.where} to update it."
     names = ", ".join(f.text for f in found[:-1]) + f" and {found[-1].text}"
     return f"{len(found)} updates for your Deck", f"{names}. Open Deckhand to update them."
 

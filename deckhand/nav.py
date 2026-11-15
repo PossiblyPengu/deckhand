@@ -184,13 +184,25 @@ class Nav(QObject):
         return None
 
     @staticmethod
+    def next_row(w: QListWidget, start: int, step: int) -> int | None:
+        """The first row from `start` on, going `step` (+1 down, -1 up), that can be picked (headings can't)."""
+        i = start
+        while 0 <= i < w.count():
+            if w.item(i).flags() & Qt.ItemFlag.ItemIsSelectable:
+                return i
+            i += step
+        return None
+
+    @staticmethod
     def _widget_wants(w: QWidget, d: str) -> bool:
         """Let text fields and lists use arrows themselves until they hit an edge."""
         if isinstance(w, QLineEdit):
             return d in ("left", "right")
         if isinstance(w, QListWidget):
-            row, n = w.currentRow(), w.count()
-            return (d == "up" and row > 0) or (d == "down" and row < n - 1)
+            if d not in ("up", "down"):
+                return False
+            step = 1 if d == "down" else -1
+            return Nav.next_row(w, w.currentRow() + step, step) is not None
         if isinstance(w, QPlainTextEdit):
             sb = w.verticalScrollBar()
             return (d == "up" and sb.value() > sb.minimum()) or (d == "down" and sb.value() < sb.maximum())
@@ -206,7 +218,8 @@ class Nav(QObject):
             return
         cur = self.app.focusWidget()
         if isinstance(cur, QListWidget) and self._widget_wants(cur, d):
-            cur.setCurrentRow(cur.currentRow() + (1 if d == "down" else -1))
+            step = 1 if d == "down" else -1
+            cur.setCurrentRow(self.next_row(cur, cur.currentRow() + step, step))
             return
         cands = [w for w in focusable(root) if w is not cur]
         if not cands:
