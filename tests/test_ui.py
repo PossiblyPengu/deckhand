@@ -346,8 +346,9 @@ class TestWindow(Env):
         self.win.workers.clear()
 
     def test_gamepad_actions(self):
-        for n in ("a.exe", "b.exe"):
-            self.add_installer(n, 10)
+        for age, n in ((60, "a.exe"), (0, "b.exe")):  # (b is the newer: first, then a)
+            p = self.add_installer(n, 10)
+            os.utime(p, (time.time() - age, time.time() - age))
         self.win.go_home()
         tiles = self.win.home.tiles
         self.wait_for(lambda: QApplication.focusWidget() is tiles[1])

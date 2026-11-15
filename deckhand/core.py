@@ -2457,7 +2457,9 @@ def find_installers(
                     continue
                 parts = [Path(dirpath) / n for n in filenames if n.lower().endswith(".bin")]
                 found[p] = FoundInstaller(p, files_size(installer_files(p, parts)), st.st_mtime)
-    return sorted(found.values(), key=lambda i: i.mtime, reverse=True)[:limit]
+    # Newest first; ones with the same time by name, so the order is the same on every machine (a folder lists its
+    # files in whatever order its filesystem keeps them).
+    return sorted(found.values(), key=lambda i: (-i.mtime, i.path.name.lower()))[:limit]
 
 
 # ── Icons inside Windows .exe files ─────────────────────────────────────────
