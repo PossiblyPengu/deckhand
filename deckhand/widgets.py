@@ -175,7 +175,8 @@ class Tile(QPushButton):
         r = QRectF(self.rect()).adjusted(3, 3, -3, -3)
         card = QPainterPath()
         card.addRoundedRect(r, 22, 22)
-        p.fillPath(card, QColor(theme.SURFACE_HI if focused or self.underMouse() else theme.SURFACE))
+        p.fillPath(card, QColor(theme.ACCENT_SOFT if focused else theme.SURFACE_HI if self.underMouse()
+                                else theme.SURFACE))
 
         art = QRectF(r.x(), r.y(), r.width(), r.height() * 0.62)
         clip = QPainterPath()
@@ -217,7 +218,7 @@ class Tile(QPushButton):
             p.drawText(QRectF(text.x(), text.bottom() - 20, text.width(), 20), Qt.AlignmentFlag.AlignLeft, sub)
 
         if focused:
-            p.setPen(QPen(QColor(theme.ACCENT), 3))
+            p.setPen(QPen(QColor(theme.ACCENT), 4))
             p.drawPath(card)
         p.end()
 
@@ -878,7 +879,8 @@ class CardDelegate(QStyledItemDelegate):
         hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
         card = QPainterPath()
         card.addRoundedRect(r, 18, 18)
-        p.fillPath(card, QColor(theme.SURFACE_HI if focused else theme.SURFACE if selected or hover
+        # (The row the controller is on: the soft accent with an accent outline, the same as a focused list item.)
+        p.fillPath(card, QColor(theme.ACCENT_SOFT if focused else theme.SURFACE if selected or hover
                                 else theme.BG_RAISED))
         if focused:
             p.setPen(QPen(QColor(theme.ACCENT), 3))

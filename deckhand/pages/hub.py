@@ -62,9 +62,10 @@ class SectionCard(QPushButton):
         r = QRectF(self.rect()).adjusted(3, 3, -3, -3)
         card = QPainterPath()
         card.addRoundedRect(r, 28, 28)
-        p.fillPath(card, QColor(theme.SURFACE_HI if focused or self.underMouse() else theme.SURFACE))
-        if focused:
-            p.setPen(QPen(QColor(theme.ACCENT), 3))
+        p.fillPath(card, QColor(theme.ACCENT_SOFT if focused else theme.SURFACE_HI if self.underMouse()
+                                else theme.SURFACE))
+        if focused:  # (where the controller is: the soft accent with a clear accent outline)
+            p.setPen(QPen(QColor(theme.ACCENT), 4))
             p.drawPath(card)
         pad = max(20.0, min(30.0, r.width() * 0.07))
         title_font, detail_font = self.fonts()

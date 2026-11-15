@@ -47,27 +47,29 @@ QPushButton {{
   padding: 10px 28px; min-height: 36px; font-size: 19px; font-weight: 700;
 }}
 QPushButton:hover {{ background: {SURFACE_HI}; border-color: {SURFACE_HI}; }}
-QPushButton:focus {{ background: {SURFACE_HI}; border-color: {ACCENT}; }}
 QPushButton:pressed {{ background: {ACCENT_DARK}; color: {ON_ACCENT}; }}
 QPushButton:disabled {{ color: {MUTED}; }}
-QPushButton#primary {{ background: {ACCENT}; border-color: {ACCENT}; color: {ON_ACCENT}; }}
-QPushButton#primary:focus {{ border-color: {TEXT}; }}
-QPushButton#primary:hover {{ background: {ACCENT_HI}; border-color: {ACCENT_HI}; }}
+QPushButton#primary {{ background: {ACCENT_SOFT}; border-color: {ACCENT}; color: {TEXT}; }}
+QPushButton#primary:hover {{ background: {ACCENT_SOFT}; border-color: {ACCENT_HI}; }}
 QPushButton#play {{ background: {GREEN}; border-color: {GREEN}; color: {ON_GREEN}; font-size: 22px; font-weight: 800; }}
-QPushButton#play:focus, QPushButton#play:hover {{ background: {GREEN_HI}; border-color: {TEXT}; }}
+QPushButton#play:hover {{ background: {GREEN_HI}; border-color: {GREEN_HI}; }}
 QPushButton#danger {{ color: {DANGER}; }}
 QPushButton#key {{ padding: 2px 0; min-height: 40px; min-width: 0; border-radius: 14px; font-size: 22px; font-weight: 700; }}
-QPushButton#key:checked {{ background: {ACCENT}; border-color: {ACCENT}; color: {ON_ACCENT}; }}
+QPushButton#key:checked {{ background: {ACCENT_SOFT}; border-color: {ACCENT}; color: {TEXT}; }}
 QPushButton#flat {{ background: transparent; border-color: transparent; color: {TEXT_DIM}; }}
-QPushButton#flat:focus {{ border-color: {ACCENT}; }}
+/* Where the controller is: the one solid accent button on screen, with a ring. The suggested button (#primary) is a
+   soft tint with an accent outline until the controller is on it, so the two are never mistaken for each other. */
+QPushButton:focus, QPushButton#primary:focus, QPushButton#flat:focus, QPushButton#key:focus,
+QPushButton#key:checked:focus {{ background: {ACCENT}; border-color: {TEXT}; color: {ON_ACCENT}; }}
+QPushButton#danger:focus {{ background: {DANGER}; border-color: {TEXT}; color: {ON_ACCENT if SCHEME == "dusk" else "#ffffff"}; }}
+QPushButton#play:focus {{ background: {GREEN_HI}; border-color: {TEXT}; color: {ON_GREEN}; }}
 
 QListWidget {{
   background: {BG_RAISED}; border: 2px solid {LINE}; border-radius: 22px; padding: 8px; outline: none;
 }}
-QListWidget:focus {{ border-color: {ACCENT}; }}
 QListWidget::item {{ padding: 12px 14px; border-radius: 16px; margin: 1px 0; border: 3px solid transparent; }}
 QListWidget::item:selected {{ background: {SURFACE}; color: {TEXT}; }}
-QListWidget::item:selected:focus {{ background: {SURFACE_HI}; border: 3px solid {ACCENT}; }}
+QListWidget::item:selected:focus {{ background: {ACCENT_SOFT}; border: 3px solid {ACCENT}; }}
 QLineEdit {{
   background: {BG_RAISED}; border: 2px solid {LINE}; border-radius: 22px; padding: 10px 18px; font-size: 20px;
 }}
