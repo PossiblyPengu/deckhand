@@ -15,9 +15,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
@@ -57,7 +57,7 @@ jobs:
           echo "$OUT"
           [ "$OUT" = "Deckhand $RELEASE_VERSION" ] || { echo "expected Deckhand $RELEASE_VERSION"; exit 1; }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: deckhand-linux-x86_64
           path: |
