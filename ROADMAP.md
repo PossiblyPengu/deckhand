@@ -63,8 +63,8 @@ Weakest tested areas in Deckhand: `app.py` (75 %); gamepad input is now 84 % (wa
 - ~~Arcadia's docs screenshots predate the hub~~ **Done:** `tools/screenshots.sh` takes them (and the Emulators screen).
 
 **Features people will look for**
-- Deckhand: ~~Proton version per program~~ (done: Installed → Proton version); several installers at once; ProtonDB ratings before installing; SteamGridDB art
-  by default; one Updates screen.
+- Deckhand: ~~Proton version per program~~ (done: Installed → Proton version); ~~one Updates screen~~ (done: Menu → Updates); several installers at once; ProtonDB ratings before installing; SteamGridDB art
+  by default.
 - Arcadia: ~~guided cloud-save setup~~ (done, in Desktop Mode); ~~per-game emulator choice hard to find~~ (done: game
   options → Emulator for this game).
 - Both: one update for the pair.

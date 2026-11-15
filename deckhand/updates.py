@@ -44,6 +44,8 @@ class Found:
 
     @property
     def text(self) -> str:
+        if self.latest.startswith(self.name):  # ("GE-Proton10-30", not "GE-Proton GE-Proton10-30")
+            return self.latest
         return f"{self.name} {self.latest}" if self.latest else self.name
 
     @property

@@ -96,7 +96,7 @@ class TestUpdates(Env):
                  updates.Found("ge-proton", "GE-Proton", "GE-Proton10-26")]
         updates.notify(self.paths, found, self.sender)
         self.assertEqual(self.sent, [("3 updates for your Deck", "Deckhand 4.7.0, Arcadia 0.1.6 and "
-                                      "GE-Proton GE-Proton10-26. Open Deckhand to update them.")])
+                                      "GE-Proton10-26. Open Deckhand to update them.")])
 
     def test_with_no_notification_service_it_tries_again_next_time(self):
         found = [updates.Found("arcadia", "Arcadia", "0.1.6")]

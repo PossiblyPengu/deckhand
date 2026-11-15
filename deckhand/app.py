@@ -987,7 +987,8 @@ class MainWindow(QMainWindow):
                       f"Installed programs: {self.paths.prefixes}\nInstall logs: {self.paths.logs}", ("Close",))
 
         items = [
-            ("Check for updates", lambda: self.check_for_updates(manual=True)),
+            (f"Updates ({len(self.waiting_updates())} waiting)" if self.waiting_updates() else "Check for updates",
+             self.show_updates),
             ("Add Deckhand to Steam", self.add_self_to_steam),
             ("Free up space", self.free_up_space),
             ("Remove duplicate shortcuts", self.remove_duplicates),
@@ -1290,6 +1291,33 @@ class MainWindow(QMainWindow):
         t.finished.connect(lambda: setattr(self, "update_check", None))
         self.update_check = t
         t.start()
+
+    def waiting_updates(self) -> list[tuple[str, str]]:
+        """Everything with an update: (id, "Name version"), Deckhand first."""
+        out = [("deckhand", f"Deckhand {self.update_info.version}")] if self.update_info is not None else []
+        return out + [(f.id, f.text) for f in self.addon_updates.values()]
+
+    def show_updates(self) -> None:
+        """Menu → Updates: what has an update, in one place. Picking one updates it (Deckhand) or opens it where
+        its Update button is (Games or Tools). With nothing waiting, it checks."""
+        waiting = self.waiting_updates()
+        if not waiting:
+            self.check_for_updates(manual=True)
+            self.check_addon_updates()
+            return
+        names = "\n".join(f"• {text}" for _id, text in waiting)
+        buttons = (*(text for _id, text in waiting), "Check again", "Close")
+        choice = Sheet.ask(self, "Updates", f"Waiting:\n{names}\n\nPick one to update it.", buttons,
+                           primary=0)
+        if choice < 0 or choice >= len(buttons) - 1:
+            return
+        if choice == len(waiting):
+            self.check_for_updates(manual=True)
+            self.check_addon_updates()
+        elif waiting[choice][0] == "deckhand":
+            self.start_update()
+        else:
+            self.open_addon(waiting[choice][0])
 
     def on_update_checked(self, update: updater.Update | None, manual: bool, online: bool = True) -> None:
         if update is not None:

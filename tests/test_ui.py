@@ -2248,6 +2248,31 @@ class TestWindow(Env):
         self.assertTrue(text.startswith("Arcadia 0.2.0 is out."))
         self.assertEqual(offered[0], "Update to 0.2.0")
 
+    def test_one_updates_screen_lists_everything_and_opens_each(self):
+        from deckhand import updater, updates
+        from deckhand.widgets import Sheet
+        self.win.update_info = updater.Update("4.9.0", "https://example.invalid/deckhand", "")
+        self.win.addon_updates = {"arcadia": updates.Found("arcadia", "Arcadia", "0.2.0"),
+                                  "ge-proton": updates.Found("ge-proton", "GE-Proton", "GE-Proton10-30")}
+        seen = []
+        Sheet.ask = staticmethod(lambda parent, title, text="", b=(), **k: (seen.append((title, text, b)), 1)[1])
+        self.win.show_updates()  # (picks the second: Arcadia)
+        title, text, offered = seen[0]
+        self.assertEqual(title, "Updates")
+        self.assertEqual(offered, ("Deckhand 4.9.0", "Arcadia 0.2.0", "GE-Proton10-30", "Check again",
+                                   "Close"))
+        self.assertIn("• Arcadia 0.2.0", text)
+        self.assertIs(self.win.stack.currentWidget(), self.win.stores)  # (Arcadia is under Games)
+        self.assertEqual(self.win.stores.list.currentItem().data(Qt.ItemDataRole.UserRole), "arcadia")
+
+    def test_with_nothing_waiting_updates_checks(self):
+        checked = []
+        self.win.check_for_updates = lambda manual: checked.append(("deckhand", manual))
+        self.win.check_addon_updates = lambda: checked.append(("addons", None))
+        self.win.show_updates()
+        self.assertEqual(checked, [("deckhand", True), ("addons", None)])
+        self.assertEqual(self.asked, [])
+
     def test_nexus_download_add_to_steam_and_uninstall(self):
         self._addons_page()
         self._choose("nexus", 0)  # Download Nexus Launcher
