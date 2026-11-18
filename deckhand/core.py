@@ -2132,8 +2132,34 @@ def write_desktop_file(path: Path, name: str, exe: str, workdir: str, icon: str,
     return path
 
 
+# Where Flatpak puts the menu entries of the apps it installs (for the whole Deck, and for this user).
+FLATPAK_MENU_DIRS = (Path("/var/lib/flatpak/exports/share/applications"),
+                     Path.home() / ".local/share/flatpak/exports/share/applications")
+
+
+def own_menu_entry(app: App) -> Path | None:
+    """The app menu entry a Flathub app brought itself, when this entry's launcher just starts that app (Moonlight,
+    Heroic…). A service that opens in a browser has none of its own: the browser's entry isn't it."""
+    if app.kind not in ("stream", "store"):
+        return None
+    try:
+        text = Path(app.launcher).read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return None
+    direct = re.search(r"exec flatpak run '?([A-Za-z0-9_.-]+)'?", text)
+    if not direct or re.search(r"^B=\S+$", text, re.M):
+        return None
+    return next((d / f"{direct.group(1)}.desktop" for d in FLATPAK_MENU_DIRS
+                 if (d / f"{direct.group(1)}.desktop").exists()), None)
+
+
 def write_desktop_entry(app: App) -> Path:
-    """A menu entry (Desktop Mode app menu → Games). Also what Steam's add-a-game handoff reads."""
+    """A menu entry (Desktop Mode app menu → Games), unless the app is in the menu already by itself: then a second
+    one would be a duplicate, and one left by an older Deckhand is removed. (Steam's add-a-game handoff reads this
+    file when it's there, and a temporary one otherwise: see add_shortcut.)"""
+    if own_menu_entry(app) is not None:
+        remove_desktop_entry(app)
+        return desktop_entry_path(app)
     return write_desktop_file(desktop_entry_path(app), app.name, app.launcher, str(Path(app.exe).parent), app.icon)
 
 

@@ -165,6 +165,10 @@ class Env(unittest.TestCase):
             (desktop_bin / name).chmod(0o755)
         os.environ["PATH"] = f"{desktop_bin}:{os.environ.get('PATH', '')}"
         self.paths = core.Paths(self.tmp / "data")
+        # Flatpak's own app-menu entries: an empty folder here, not the ones of the machine running the tests.
+        self.flatpak_menu = self.tmp / "flatpak-menu"
+        self.flatpak_menu.mkdir()
+        self._real_flatpak_menu_dirs, core.FLATPAK_MENU_DIRS = core.FLATPAK_MENU_DIRS, (self.flatpak_menu,)
         # Fake Steam with one user and one Proton
         self.steam = self.tmp / "Steam"
         (self.steam / "steamapps/common").mkdir(parents=True)
@@ -203,6 +207,7 @@ class Env(unittest.TestCase):
 
     def tearDown(self):
         core.steam_is_running = self._real_steam_is_running
+        core.FLATPAK_MENU_DIRS = self._real_flatpak_menu_dirs
         os.environ.clear()
         os.environ.update(self.env_backup)
         import shutil

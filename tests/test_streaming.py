@@ -130,6 +130,38 @@ class TestStreaming(FlatpakEnv):
         self.assertIn("install --system -y --noninteractive flathub com.moonlight_stream.Moonlight", self.calls())
         self.assertIn("exec flatpak run com.moonlight_stream.Moonlight", Path(app.launcher).read_text())
 
+    def test_an_app_with_its_own_menu_entry_gets_no_second_one(self):
+        # Flathub's Moonlight is in the app menu by itself; a web service (in a browser) is only there through Deckhand.
+        (self.flatpak_menu / "com.moonlight_stream.Moonlight.desktop").write_text("[Desktop Entry]\nName=Moonlight\n")
+        (self.flatpak_menu / "com.google.Chrome.desktop").write_text("[Desktop Entry]\nName=Google Chrome\n")
+        moonlight = streaming.set_up(streaming.service("moonlight"), self.paths, roots=[self.steam])
+        luna = streaming.set_up(streaming.service("amazon-luna"), self.paths, roots=[self.steam])
+        self.assertFalse(core.desktop_entry_path(moonlight).exists())
+        self.assertTrue(core.desktop_entry_path(luna).exists())
+        # It's in Steam all the same (the shortcut doesn't need the menu entry).
+        self.assertEqual(sorted(e["AppName"] for _cfg, e in core.steam_shortcuts([self.steam])),
+                         ["Amazon Luna", "Moonlight"])
+
+    def test_an_entry_left_by_an_older_deckhand_is_removed(self):
+        app = streaming.set_up(streaming.service("moonlight"), self.paths, roots=[self.steam])
+        self.assertTrue(core.desktop_entry_path(app).exists())  # (no entry of its own here: Deckhand's stays)
+        (self.flatpak_menu / "com.moonlight_stream.Moonlight.desktop").write_text("[Desktop Entry]\nName=Moonlight\n")
+        core.write_desktop_entry(app)
+        self.assertFalse(core.desktop_entry_path(app).exists())
+
+    def test_with_steam_open_the_handoff_uses_a_file_outside_the_menu(self):
+        (self.flatpak_menu / "com.moonlight_stream.Moonlight.desktop").write_text("[Desktop Entry]\nName=Moonlight\n")
+        handed = []
+        orig, core.request_steam_add = core.request_steam_add, lambda f: (handed.append(Path(f)), True)[1]
+        orig_running, core.steam_is_running = core.steam_is_running, lambda: True
+        try:
+            app = streaming.set_up(streaming.service("moonlight"), self.paths, roots=[self.steam])
+            core.add_to_steam(app, [self.steam], running=True, wait=0)
+        finally:
+            core.request_steam_add, core.steam_is_running = orig, orig_running
+        self.assertTrue(handed and all(f.exists() and "applications" not in f.parts for f in handed), handed)
+        self.assertFalse(core.desktop_entry_path(app).exists())
+
     def test_setting_up_twice_keeps_one_shortcut(self):
         svc = streaming.service("boosteroid")
         streaming.set_up(svc, self.paths, roots=[self.steam])

@@ -109,6 +109,7 @@ class MainWindow(QMainWindow):
         ensure_app_icon()
         self.sync_steam_ids()
         self.add_logos()
+        self.drop_duplicate_menu_entries()
         self.go(self.hub)
         dupes = core.find_duplicate_shortcuts(None, self.paths.launchers)
         if dupes:
@@ -888,6 +889,13 @@ class MainWindow(QMainWindow):
         for app in self.library.load():
             if core.sync_steam_appid(app, entries):
                 self._write_art(app, artwork.load_icon(app.icon))
+
+    def drop_duplicate_menu_entries(self) -> None:
+        """An app that's in the app menu by itself (a Flathub app with its own entry) doesn't get a second entry from
+        Deckhand; one an older Deckhand added is removed."""
+        for app in self.library.load():
+            if core.own_menu_entry(app) is not None:
+                core.remove_desktop_entry(app)
 
     def add_logos(self) -> None:
         """Streaming services and store apps added before Deckhand had their logos: use the logo for
