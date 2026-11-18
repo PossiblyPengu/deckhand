@@ -2153,6 +2153,30 @@ def own_menu_entry(app: App) -> Path | None:
                  if (d / f"{direct.group(1)}.desktop").exists()), None)
 
 
+def _catalog_blurb(app: App) -> str:
+    """The description Deckhand's own catalogs give this app — a streaming service's, a store's or an
+    add-on's blurb. (They import core, so they can only be reached at call time.)"""
+    from deckhand import addons, stores, streaming
+    key = app.id.split("-", 1)[1] if app.id.startswith(f"{app.kind}-") else app.id
+    if app.kind == "addon":
+        entry = next((a for a in addons.ADDONS if a.id == key), None)
+    elif app.kind == "store":
+        entry = next((s for s in stores.STORES if s.id == key), None)
+    else:
+        entry = streaming.service(key)
+    return entry.blurb if entry is not None else ""
+
+
+def menu_comment(app: App) -> str:
+    """The line under the app's name in the app menu: what the app actually is — the catalog's own
+    description, a Windows program's FileDescription — not one generic note for everything."""
+    if app.kind in ("stream", "store", "addon"):
+        return _catalog_blurb(app) or "Installed with Deckhand"
+    if app.kind == "program":
+        return exe_file_description(Path(app.exe)) or "Windows program installed with Deckhand"
+    return "Installed with Deckhand"
+
+
 def write_desktop_entry(app: App) -> Path:
     """A menu entry (Desktop Mode app menu → Games), unless the app is in the menu already by itself: then a second
     one would be a duplicate, and one left by an older Deckhand is removed. (Steam's add-a-game handoff reads this
@@ -2160,7 +2184,8 @@ def write_desktop_entry(app: App) -> Path:
     if own_menu_entry(app) is not None:
         remove_desktop_entry(app)
         return desktop_entry_path(app)
-    return write_desktop_file(desktop_entry_path(app), app.name, app.launcher, str(Path(app.exe).parent), app.icon)
+    return write_desktop_file(desktop_entry_path(app), app.name, app.launcher, str(Path(app.exe).parent), app.icon,
+                              comment=menu_comment(app))
 
 
 def remove_desktop_entry(app: App) -> None:
@@ -2576,7 +2601,8 @@ def exe_icon_data(exe: Path) -> bytes | None:
         mm.close()
 
 
-def _pe_icon(d) -> bytes | None:
+def _pe_rsrc(d):
+    """(entries, leaf) over a PE image's resource section, or None when it isn't a PE with one."""
     if d[:2] != b"MZ":
         return None
     (pe,) = struct.unpack_from("<I", d, 0x3C)
@@ -2622,6 +2648,14 @@ def _pe_icon(d) -> bytes | None:
         o = off(rva)
         return bytes(d[o:o + size])
 
+    return entries, leaf
+
+
+def _pe_icon(d) -> bytes | None:
+    tree = _pe_rsrc(d)
+    if tree is None:
+        return None
+    entries, leaf = tree
     icons: dict[int, int] = {}
     groups: list[int] = []
     for type_id, target in entries(0):
@@ -2652,6 +2686,70 @@ def _pe_icon(d) -> bytes | None:
     if data[:8] == b"\x89PNG\r\n\x1a\n":
         return data
     return struct.pack("<HHHBBBBHHII", 0, 1, 1, w, h, colors, 0, planes, bits, len(data), 22) + data
+
+
+_RT_VERSION = 16
+
+
+def _version_strings(blob: bytes) -> dict[str, str]:
+    """The text a VS_VERSION_INFO blob carries in its StringFileInfo, keyed by name (FileDescription…)."""
+    out: dict[str, str] = {}
+
+    def key_at(o: int) -> tuple[str, int]:
+        chars = []
+        while o + 2 <= len(blob):
+            c = struct.unpack_from("<H", blob, o)[0]
+            o += 2
+            if c == 0:
+                return "".join(chars), o
+            chars.append(chr(c))
+        return "", o
+
+    def walk(o: int, end: int) -> None:
+        while o + 6 <= end:
+            length, vlen, typ = struct.unpack_from("<HHH", blob, o)
+            if length < 6 or o + length > end:
+                return
+            key, ko = key_at(o + 6)
+            ko = (ko + 3) & ~3
+            if typ == 1 and vlen and key:
+                val = blob[ko:ko + vlen * 2].decode("utf-16-le", "replace").rstrip("\x00")
+                if val:
+                    out.setdefault(key, val)
+            else:
+                children = (ko + (vlen * 2 if typ == 1 else vlen) + 3) & ~3
+                if children < o + length:
+                    walk(children, o + length)
+            o = (o + length + 3) & ~3
+
+    walk(0, len(blob))
+    return out
+
+
+def exe_file_description(exe: Path) -> str:
+    """The FileDescription (or ProductName) a Windows program's .exe carries — the app menu's second
+    line — "" when it has none or isn't a Windows program."""
+    try:
+        with open(exe, "rb") as f:
+            mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+    except (OSError, ValueError):
+        return ""
+    try:
+        tree = _pe_rsrc(mm)
+        if tree is None:
+            return ""
+        entries, leaf = tree
+        for type_id, target in entries(0):
+            if type_id == _RT_VERSION and target & 0x80000000:
+                blob = leaf(target)
+                if blob:
+                    strings = _version_strings(blob)
+                    return strings.get("FileDescription") or strings.get("ProductName") or ""
+        return ""
+    except (struct.error, IndexError, ValueError, KeyError):
+        return ""
+    finally:
+        mm.close()
 
 
 def steam_is_running() -> bool:

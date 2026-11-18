@@ -62,16 +62,50 @@ def make_pe(icon: bytes, width: int = 48, bits: int = 32) -> bytes:
     rsrc += struct.pack("<IIII", rva + group_o, len(group), 0, 0)
     assert len(rsrc) == icon_o
     rsrc += icon + b"\0" * ((-len(icon)) % 4) + group
+    return _pe_wrap(bytes(rsrc))
+
+
+def _pe_wrap(rsrc: bytes) -> bytes:
+    """PE32+ headers around one .rsrc section (RVA 0x1000 at file offset 0x400)."""
     dos = bytearray(64)
     dos[0:2] = b"MZ"
     struct.pack_into("<I", dos, 0x3C, 64)
     coff = struct.pack("<HHIIIHH", 0x8664, 1, 0, 0, 0, 240, 0x22)
     opt = bytearray(240)
     struct.pack_into("<H", opt, 0, 0x20B)
-    struct.pack_into("<II", opt, 112 + 16, rva, len(rsrc))
-    sec = struct.pack("<8sIIIIIIHHI", b".rsrc", len(rsrc), rva, len(rsrc), 0x400, 0, 0, 0, 0, 0x40000040)
+    struct.pack_into("<II", opt, 112 + 16, 0x1000, len(rsrc))
+    sec = struct.pack("<8sIIIIIIHHI", b".rsrc", len(rsrc), 0x1000, len(rsrc), 0x400, 0, 0, 0, 0, 0x40000040)
     head = bytes(dos) + b"PE\0\0" + coff + bytes(opt) + sec
     return head + b"\0" * (0x400 - len(head)) + bytes(rsrc)
+
+
+def make_pe_version(strings: dict) -> bytes:
+    """A minimal PE32+ .exe whose resource section holds version info with the given strings."""
+    def rdir(entries):  # IMAGE_RESOURCE_DIRECTORY + entries
+        return struct.pack("<IIHHHH", 0, 0, 0, 0, 0, len(entries)) + b"".join(
+            struct.pack("<II", i, t) for i, t in entries)
+
+    def vblock(key, value=b"", vlen=0, children=b"", typ=1):
+        # VS_VERSION_INFO block: header, utf-16 key, pad, value, pad, children — length patched last.
+        blk = bytearray(struct.pack("<HHH", 0, vlen, typ) + key.encode("utf-16-le") + b"\x00\x00")
+        blk += b"\x00" * ((-len(blk)) % 4)
+        blk += value + b"\x00" * ((-len(value)) % 4) + children
+        struct.pack_into("<H", blk, 0, len(blk))
+        return bytes(blk)
+
+    tables = b"".join(vblock(name, value=text.encode("utf-16-le"), vlen=len(text)) for name, text in strings.items())
+    sfi = vblock("StringFileInfo", children=vblock("040904b0", children=tables))
+    fixed = struct.pack("<I", 0xFEEF04BD) + b"\x00" * 48  # VS_FIXEDFILEINFO
+    blob = vblock("VS_VERSION_INFO", value=fixed, vlen=52, children=sfi, typ=0)
+    # resource tree: root → type 16 → name 1 → lang 0x409 → the blob's data entry (@88)
+    rsrc = bytearray()
+    rsrc += rdir([(16, 0x80000000 | 24)])
+    rsrc += rdir([(1, 0x80000000 | 48)])
+    rsrc += rdir([(0x409, 72)])
+    rsrc += struct.pack("<IIII", 0x1000 + 88, len(blob), 0, 0)
+    assert len(rsrc) == 88
+    rsrc += blob
+    return _pe_wrap(bytes(rsrc))
 
 
 def bmp_icon(size: int = 16) -> bytes:
@@ -280,6 +314,71 @@ class TestIcons(unittest.TestCase):
                 f.write_bytes(content)
                 self.assertIsNone(core.exe_icon_data(f))
         self.assertIsNone(core.exe_icon_data(Path("/nonexistent.exe")))
+
+
+class TestExeDescription(unittest.TestCase):
+    def test_file_description_wins(self):
+        with tempfile.TemporaryDirectory() as d:
+            exe = Path(d) / "a.exe"
+            exe.write_bytes(make_pe_version({"FileDescription": "Cool Game", "ProductName": "Cool Game Deluxe"}))
+            self.assertEqual(core.exe_file_description(exe), "Cool Game")
+
+    def test_product_name_when_no_file_description(self):
+        with tempfile.TemporaryDirectory() as d:
+            exe = Path(d) / "a.exe"
+            exe.write_bytes(make_pe_version({"ProductName": "Cool Game"}))
+            self.assertEqual(core.exe_file_description(exe), "Cool Game")
+
+    def test_no_version_info(self):
+        with tempfile.TemporaryDirectory() as d:
+            exe = Path(d) / "a.exe"
+            exe.write_bytes(make_pe(png_icon()))  # an icon, no version resource
+            self.assertEqual(core.exe_file_description(exe), "")
+            exe.write_bytes(b"not a pe")
+            self.assertEqual(core.exe_file_description(exe), "")
+        self.assertEqual(core.exe_file_description(Path("/nonexistent.exe")), "")
+
+
+class TestMenuComment(unittest.TestCase):
+    def app(self, kind, app_id, **kw):
+        return core.App(id=app_id, name=app_id, exe=kw.pop("exe", ""), prefix="", runtime_name="",
+                        runtime_kind="", runtime_path="", kind=kind, **kw)
+
+    def test_catalogs_give_their_own_blurbs(self):
+        from deckhand import addons, stores, streaming
+        self.assertEqual(core.menu_comment(self.app("stream", "stream-moonlight")),
+                         streaming.service("moonlight").blurb)
+        self.assertEqual(core.menu_comment(self.app("store", "store-heroic")),
+                         next(s for s in stores.STORES if s.id == "heroic").blurb)
+        self.assertEqual(core.menu_comment(self.app("addon", "addon-arcadia")),
+                         next(a for a in addons.ADDONS if a.id == "arcadia").blurb)
+
+    def test_a_program_uses_its_exes_description(self):
+        with tempfile.TemporaryDirectory() as d:
+            data_home = Path(d) / "data"
+            old_xdg = os.environ.get("XDG_DATA_HOME")
+            os.environ["XDG_DATA_HOME"] = str(data_home)
+            try:
+                exe = Path(d) / "CoolGame.exe"
+                exe.write_bytes(make_pe_version({"FileDescription": "Cool Game Launcher"}))
+                app = self.app("program", "program-cool-game", exe=str(exe))
+                self.assertEqual(core.menu_comment(app), "Cool Game Launcher")
+                text = core.desktop_entry_path(app)
+                core.write_desktop_entry(app)
+                self.assertIn("Comment=Cool Game Launcher", text.read_text())
+            finally:
+                if old_xdg is None:
+                    os.environ.pop("XDG_DATA_HOME", None)
+                else:
+                    os.environ["XDG_DATA_HOME"] = old_xdg
+
+    def test_fallbacks(self):
+        self.assertEqual(core.menu_comment(self.app("stream", "stream-nothing-real")), "Installed with Deckhand")
+        with tempfile.TemporaryDirectory() as d:
+            exe = Path(d) / "plain.exe"
+            exe.write_bytes(b"MZ" + b"\0" * 100)
+            self.assertEqual(core.menu_comment(self.app("program", "program-x", exe=str(exe))),
+                             "Windows program installed with Deckhand")
 
 
 class TestFindingInstallers(unittest.TestCase):

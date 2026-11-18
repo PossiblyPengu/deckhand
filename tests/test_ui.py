@@ -956,6 +956,24 @@ class TestWindow(Env):
             win.close()
             win.deleteLater()
 
+    def test_menu_entries_get_their_real_description_at_startup(self):
+        from deckhand import app as app_mod, streaming
+        svc = streaming.service("amazon-luna")  # a browser service: Deckhand's own entry stays
+        launcher = streaming.write_launcher(svc, self.paths, set())
+        app = core.App(id="stream-amazon-luna", name=svc.name, exe=str(launcher), prefix="", runtime_name="",
+                       runtime_kind="", runtime_path="", launcher=str(launcher), kind="stream")
+        core.Library(self.paths).upsert(app)
+        entry = core.desktop_entry_path(app)
+        entry.parent.mkdir(parents=True, exist_ok=True)
+        entry.write_text('[Desktop Entry]\nType=Application\nName=Amazon Luna\n'
+                         'Comment=Windows program installed with Deckhand\nExec=x\n')
+        win = app_mod.MainWindow(self.paths, use_nav=False, check_updates=False)
+        try:
+            self.assertIn(f"Comment={svc.blurb}", entry.read_text())
+        finally:
+            win.close()
+            win.deleteLater()
+
     def test_a_service_already_in_steam_is_shown_and_not_added_twice(self):
         vdf = self.steam / "userdata/12345/config/shortcuts.vdf"
         vdf.write_bytes(core.vdf_dumps({"shortcuts": {"0": {

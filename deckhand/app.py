@@ -892,10 +892,13 @@ class MainWindow(QMainWindow):
 
     def drop_duplicate_menu_entries(self) -> None:
         """An app that's in the app menu by itself (a Flathub app with its own entry) doesn't get a second entry from
-        Deckhand; one an older Deckhand added is removed."""
+        Deckhand; one an older Deckhand added is removed. Entries that stay get their comment refreshed too: older
+        ones all carried the same generic line."""
         for app in self.library.load():
             if core.own_menu_entry(app) is not None:
                 core.remove_desktop_entry(app)
+            elif core.desktop_entry_path(app).exists():
+                core.write_desktop_entry(app)
 
     def add_logos(self) -> None:
         """Streaming services and store apps added before Deckhand had their logos: use the logo for
